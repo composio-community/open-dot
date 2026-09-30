@@ -5,10 +5,14 @@ import { Check, ChevronDown, Cpu } from "lucide-react";
 import { useStore } from "@/lib/store";
 
 const OPEN = "openrouter:";
-const label = (id: string) => (id.startsWith(OPEN) ? id.slice(OPEN.length) : id);
+const CHATGPT = "chatgpt:";
+const label = (id: string) => (id.startsWith(OPEN) ? id.slice(OPEN.length) : id.startsWith(CHATGPT) ? id.slice(CHATGPT.length) : id);
+const provider = (id: string) => (id.startsWith(OPEN) ? "openrouter" : id.startsWith(CHATGPT) ? "chatgpt" : "openai");
+const providerLabel = (id: string) => (provider(id) === "openrouter" ? "Open models" : provider(id) === "chatgpt" ? "ChatGPT plan" : "OpenAI API");
 
 function hint(id: string): string | null {
   if (id.startsWith(OPEN)) return "Open model · OpenRouter";
+  if (id.startsWith(CHATGPT)) return "ChatGPT plan";
   if (/-pro\b/.test(id)) return "Strongest · slower";
   if (/-nano\b/.test(id)) return "Fastest · cheapest";
   if (/-mini\b/.test(id)) return "Fast · cheaper";
@@ -42,8 +46,7 @@ export default function ModelPicker({
       id,
       label: label(id),
       sub: hint(id),
-      // a heading above the first open model (and above OpenAI's when both are there)
-      group: id.startsWith(OPEN) && !list[i - 1]?.startsWith(OPEN) ? "Open models" : i === 0 && list.some((m) => m.startsWith(OPEN)) ? "OpenAI" : undefined,
+      group: i === 0 || provider(list[i - 1]) !== provider(id) ? providerLabel(id) : undefined,
     })),
   ];
 

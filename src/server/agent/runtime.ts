@@ -1,8 +1,8 @@
 import "server-only";
 import type {
-  ResponseComputerToolCall, ResponseFunctionToolCall, ResponseInputContent, ResponseInputItem, Response, Tool,
+  ResponseComputerToolCall, ResponseFunctionToolCall, ResponseInputContent, ResponseInputItem, Response, ResponseOutputItem, Tool,
 } from "openai/resources/responses/responses";
-import { clientFor, isReasoningModel, modelFor, supportsComputerTool } from "./client";
+import { clientFor, completedResponse, isReasoningModel, modelFor, supportsComputerTool, type ModelClient } from "./client";
 import { systemPrompt, type Trigger } from "./prompt";
 import { COMPUTER_ENABLED, findTool, setConsult, toolsForDot, type ToolCtx } from "./tools";
 import { review } from "./review";
@@ -259,27 +259,28 @@ async function turn(dotId: string, text: string, trigger: Trigger, signal: Abort
     repo.resetThread(conversationId);
     thread = null;
   }
-  const { stateless } = clientFor(await modelFor(dot.model));
+  const { stateless } = await clientFor(await modelFor(dot.model));
   if (!fresh && (stateless ? !repo.getHistory(dotId).length : !thread)) input.unshift(...rebuildContext(dotId, text));
   input.push(userInput(text, attachments));
   await drive(dot, thread, input, trigger, signal);
 }
 
 async function drive(dot: Dot, prevId: string | null, input: ResponseInputItem[], trigger: Trigger, signal: AbortSignal) {
+  const target = await clientFor(await modelFor(dot.model));
   for (let step = 0; step < MAX_STEPS; step++) {
     signal.throwIfAborted();
     let resp: Response;
     try {
       resp = await respond(dot, prevId, input, trigger, signal);
     } catch (err) {
-      if (!prevId || signal.aborted || clientFor(await modelFor(dot.model)).stateless || !/previous|not found|No tool output/i.test(String(err))) throw err;
+      if (!prevId || signal.aborted || target.stateless || !/previous|not found|No tool output/i.test(String(err))) throw err;
       // The server-side thread is gone or broken: rebuild from our transcript and carry on.
       const userText = input.filter((i) => "role" in i && i.role === "user").map((i) => ("content" in i ? String(i.content) : "")).join("\n");
       input = [...rebuildContext(dot.id, userText), { role: "user", content: userText || "Continue." }];
       prevId = null;
       resp = await respond(dot, null, input, trigger, signal);
     }
-    repo.setThread(dot.id, clientFor(await modelFor(dot.model)).stateless ? null : resp.id, null);
+    repo.setThread(dot.id, target.stateless ? null : resp.id, null);
 
     const calls = resp.output.filter((o): o is Call => o.type === "function_call" || o.type === "computer_call");
     if (!calls.length) return;
@@ -291,39 +292,77 @@ async function drive(dot: Dot, prevId: string | null, input: ResponseInputItem[]
   repo.addMessage({ dotId: dot.id, role: "system", text: `Stopped after ${MAX_STEPS} steps. Say "continue" to keep going.` });
 }
 
+function webSearchTool(target: ModelClient): Tool {
+  return target.provider === "openrouter" ? ({ type: "openrouter:web_search" } as unknown as Tool) : { type: "web_search" };
+}
+
+function modelTools(dot: Dot, target: ModelClient): Tool[] {
+  const functions = toolsForDot(dot).map((t) => ({
+    type: "function" as const,
+    name: t.name,
+    description: t.description,
+    parameters: t.parameters,
+    strict: target.provider !== "openrouter" && t.strict !== false,
+  }));
+
+  // ChatGPT-plan token sharing accepts client-side function tools under a namespace.
+  // Its native computer tool is not in the preview, so Open Dot's own browser/page tools stay available here.
+  if (target.provider === "chatgpt") {
+    return [
+      {
+        type: "namespace",
+        name: "open_dot",
+        description: "Tools provided by Open Dot for apps, files, browsers, computers, approvals, and delegation.",
+        tools: functions,
+      } as Tool,
+      webSearchTool(target),
+    ];
+  }
+
+  const tools: Tool[] = [...functions, webSearchTool(target)];
+  if (target.provider === "openai" && COMPUTER_ENABLED && supportsComputerTool(target.model)) tools.push({ type: "computer" } as Tool);
+  return tools;
+}
+
 /** Stream one model response, mirroring text into the transcript as it arrives. */
 async function respond(dot: Dot, prevId: string | null, input: ResponseInputItem[], trigger: Trigger, signal: AbortSignal): Promise<Response> {
   const appModel = await modelFor(dot.model);
-  const { client, model, stateless } = clientFor(appModel);
-  const tools: Tool[] = [
-    ...toolsForDot(dot).map((t): Tool => ({ type: "function", name: t.name, description: t.description, parameters: t.parameters, strict: !stateless && t.strict !== false })),
-    // OpenRouter's server-side search: the model decides when to search, same as OpenAI's web_search.
-    stateless ? ({ type: "openrouter:web_search" } as unknown as Tool) : { type: "web_search" },
-  ];
-  if (!stateless && COMPUTER_ENABLED && supportsComputerTool(model)) tools.push({ type: "computer" } as Tool);
+  const target = await clientFor(appModel);
+  const { client, model, stateless, provider } = target;
+  const tools = modelTools(dot, target);
 
   // Stateless providers get the whole conversation every time; the app keeps it (trimmed) per chat.
   const history = stateless ? (repo.getHistory(dot.id) as ResponseInputItem[]) : [];
   repo.setActivity(dot.id, "Thinking");
   const stream = await client.responses.create(
-    stateless
-      ? { model, instructions: systemPrompt(dot, trigger), input: [...history, ...input], tools, parallel_tool_calls: false, store: false, stream: true }
-      : {
+    provider === "chatgpt"
+      ? {
           model,
           instructions: systemPrompt(dot, trigger),
-          input,
-          previous_response_id: prevId ?? undefined,
+          input: [...history, ...input],
           tools,
-          ...(isReasoningModel(model) ? { reasoning: { effort: "medium" as const } } : {}),
-          truncation: "auto",
-          parallel_tool_calls: false,
-          store: true,
+          store: false,
           stream: true,
-        },
+        }
+      : stateless
+        ? { model, instructions: systemPrompt(dot, trigger), input: [...history, ...input], tools, parallel_tool_calls: false, store: false, stream: true }
+        : {
+            model,
+            instructions: systemPrompt(dot, trigger),
+            input,
+            previous_response_id: prevId ?? undefined,
+            tools,
+            ...(isReasoningModel(model) ? { reasoning: { effort: "medium" as const } } : {}),
+            truncation: "auto",
+            parallel_tool_calls: false,
+            store: true,
+            stream: true,
+          },
     { signal },
   );
 
   const drafts = new Map<string, { id: string; text: string }>();
+  const output = new Map<number, ResponseOutputItem>();
   let final: Response | null = null;
   try {
     for await (const ev of stream) {
@@ -344,6 +383,7 @@ async function respond(dot: Dot, prevId: string | null, input: ResponseInputItem
           break;
         }
         case "response.output_item.done":
+          output.set(ev.output_index, ev.item);
           if (ev.item.type === "message") {
             const d = drafts.get(ev.item.id);
             if (d) repo.updateMessage(d.id, { text: d.text });
@@ -366,6 +406,10 @@ async function respond(dot: Dot, prevId: string | null, input: ResponseInputItem
     for (const d of drafts.values()) repo.updateMessage(d.id, { text: d.text || "…" });
   }
   if (!final) throw new Error("The model stream ended unexpectedly");
+  // ChatGPT-plan streams can leave the terminal response's output array empty. The streamed
+  // output_item.done events are complete and ordered, and are needed to execute tool calls.
+  const streamed = [...output.entries()].sort(([a], [b]) => a - b).map(([, item]) => item);
+  if (streamed.length) final = { ...final, output: streamed };
   if (stateless) repo.setHistory(dot.id, trimHistory([...history, ...input, ...replayable(final.output)]));
   return final;
 }
@@ -378,7 +422,13 @@ function replayable(output: Response["output"]): ResponseInputItem[] {
       const text = o.content.map((c) => ("text" in c ? c.text : "")).join("");
       if (text) items.push({ role: "assistant", content: text });
     } else if (o.type === "function_call") {
-      items.push({ type: "function_call", call_id: o.call_id, name: o.name, arguments: o.arguments });
+      items.push({
+        type: "function_call",
+        call_id: o.call_id,
+        name: o.name,
+        arguments: o.arguments,
+        ...(o.namespace ? { namespace: o.namespace } : {}),
+      });
     }
   }
   return items;
@@ -540,16 +590,18 @@ setConsult(async (target, message, from, _depth, signal) => {
   if (!channelId) repo.addMessage({ dotId: target.id, role: "user", text: message, from: `dot:${from.name}` });
   repo.setActivity(target.id, `Helping ${from.name}`);
   try {
-    const { client, model, stateless } = clientFor(await modelFor(target.model));
-    const res = await client.responses.create(
+    const modelTarget = await clientFor(await modelFor(target.model));
+    const { model, stateless } = modelTarget;
+    const res = await completedResponse(
+      modelTarget,
       {
         model,
         instructions: systemPrompt(target, { kind: "dot", from: from.name }),
         input: [...rebuildContext(target.id, message).slice(-12), { role: "user", content: `${from.name} asks: ${message}` }],
-        tools: [stateless ? ({ type: "openrouter:web_search" } as unknown as Tool) : { type: "web_search" }],
+        tools: [webSearchTool(modelTarget)],
         ...(stateless ? { store: false } : isReasoningModel(model) ? { reasoning: { effort: "low" as const } } : {}),
       },
-      { signal },
+      signal,
     );
     const reply = res.output_text || "(no reply)";
     // In a channel the member answers in the channel (the user sees the team at work); otherwise in its own chat.

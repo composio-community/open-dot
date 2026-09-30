@@ -3,7 +3,7 @@
 import { useState, useSyncExternalStore, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { Bell, KeyRound, Lock, LogOut, Plus, RefreshCw } from "lucide-react";
-import { connectApp, deletePassword, refreshApps, savePassword, setCloudKey, setDefaultModel, setOpenAIKey, setOpenRouterKey, signInComposio, signOutComposio } from "@/app/actions";
+import { connectApp, deletePassword, refreshApps, refreshModels, savePassword, setCloudKey, setDefaultModel, setOpenAIKey, setOpenRouterKey, signInChatGPT, signInComposio, signOutChatGPT, signOutComposio } from "@/app/actions";
 import { useStore } from "@/lib/store";
 import { openAfter } from "@/lib/popup";
 import { Empty, PageHeader, RemoveButton, RuleEditor, Section } from "./SettingsKit";
@@ -20,6 +20,7 @@ export default function SettingsView() {
   const [, force] = useState(0);
   const [form, setForm] = useState({ site: "", username: "", password: "" });
   const [error, setError] = useState<string | null>(null);
+  const [modelError, setModelError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
   return (
@@ -121,7 +122,8 @@ export default function SettingsView() {
           </div>
         </Section>
 
-        <Section eyebrow="Engine" title="Models & computers" description="Models come from what your OpenAI key can use, plus open models once you add an OpenRouter key.">
+        <Section eyebrow="Engine" title="Models & computers" description="Use your ChatGPT plan, an OpenAI API key, open models through OpenRouter, or any combination of them.">
+          <ChatGPTPlan />
           <ApiKey />
           <OpenModelsKey />
           <CloudKey />
@@ -134,16 +136,26 @@ export default function SettingsView() {
           </div>
           <dl className="surface divide-y divide-black/[0.06]">
             {[
-              ["Models on your key", computer.models.length ? `${computer.models.length} available` : "Loading…", true],
+              ["Models available", computer.models.length ? `${computer.models.length} available` : "Loading…", true],
               ["Computer use", computer.computerTool === "off" ? "Off (page tools only)" : "OpenAI computer tool", true],
               ["Dot computers", computer.docker ? `Docker containers · ${computer.image}` : "Sandbox folders (start Docker for containers)", computer.docker],
             ].map(([k, v, ok]) => (
               <div key={String(k)} className="flex items-center gap-4 px-4 py-2.5">
                 <dt className="eyebrow w-36 shrink-0">{k}</dt>
                 <dd className={`flex-1 text-body-sm ${ok ? "" : "text-warning"}`}>{v}</dd>
+                {k === "Models available" && (
+                  <button
+                    className="btn-quiet h-7 px-2.5 text-[12px]"
+                    disabled={pending}
+                    onClick={() => start(async () => setModelError(await refreshModels()))}
+                  >
+                    <RefreshCw className={`size-3.5 ${pending ? "animate-spin" : ""}`} strokeWidth={1.75} /> Refresh
+                  </button>
+                )}
               </div>
             ))}
           </dl>
+          {modelError && <p className="mt-2 text-caption text-destructive">{modelError}</p>}
         </Section>
       </div>
     </div>
@@ -251,6 +263,56 @@ function AppsList() {
   );
 }
 
+function ChatGPTPlan() {
+  const chatgpt = useStore((s) => s.computer.chatgpt);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  const identity = chatgpt.email ?? chatgpt.name;
+
+  const connect = (reconsent = false) =>
+    start(() => {
+      setError(null);
+      return openAfter(() => signInChatGPT(reconsent), setError);
+    });
+
+  const disconnect = () =>
+    start(async () => {
+      setError(await signOutChatGPT());
+    });
+
+  return (
+    <div id="chatgpt-plan" className="surface mb-3 p-4">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-[14px]">ChatGPT plan</div>
+          <div className={"text-body-sm " + (chatgpt.connected && !chatgpt.sharing ? "text-warning" : "text-foreground/55")}>
+            {chatgpt.sharing
+              ? "Connected" + (identity ? " as " + identity : "") + ". Eligible model usage comes from your ChatGPT plan."
+              : chatgpt.connected
+                ? "Signed in" + (identity ? " as " + identity : "") + ", but plan usage is not enabled yet."
+                : "Sign in with ChatGPT to use an eligible ChatGPT plan without an OpenAI API key."}
+          </div>
+        </div>
+        {chatgpt.sharing ? (
+          <button className="btn-quiet h-8 px-3 text-[13px]" disabled={pending} onClick={disconnect}>
+            <LogOut className="size-3.5" strokeWidth={1.75} /> Sign out
+          </button>
+        ) : (
+          <button className="btn-primary shrink-0" disabled={pending} onClick={() => connect(chatgpt.connected)}>
+            {pending ? "Opening…" : chatgpt.connected ? "Enable plan usage" : "Continue with ChatGPT"}
+          </button>
+        )}
+      </div>
+      {chatgpt.sharing && (
+        <p className="mt-2 text-caption text-foreground/45">
+          ChatGPT-plan inference is stateless in the current preview. Open Dot keeps the chat context locally; voice and OpenAI&apos;s native computer tool still require an API key.
+        </p>
+      )}
+      {error && <p className="mt-2 text-caption text-destructive">{error}</p>}
+    </div>
+  );
+}
+
 /** The OpenAI key: paste it here (stored encrypted), unless it comes from OPENAI_API_KEY. */
 function ApiKey() {
   const computer = useStore((s) => s.computer);
@@ -264,13 +326,13 @@ function ApiKey() {
     <div id="api-key" className="surface mb-3 p-4">
       <div className="flex items-center gap-3">
         <div className="flex-1">
-          <div className="text-[14px]">OpenAI API key</div>
+          <div className="text-[14px]">OpenAI API key <span className="text-foreground/40">· optional</span></div>
           <div className={`text-body-sm ${computer.hasKey ? "text-foreground/55" : "text-warning"}`}>
             {computer.keySource === "env"
               ? "Connected from OPENAI_API_KEY."
               : computer.hasKey
                 ? "Connected. Stored encrypted on this computer."
-                : "Your dots need one to think. Create one at platform.openai.com."}
+                : "Optional for API billing, voice calls, and OpenAI native computer use. Or connect your ChatGPT plan above."}
           </div>
         </div>
         {computer.hasKey && computer.keySource !== "env" && !editing && (

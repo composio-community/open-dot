@@ -3,6 +3,7 @@ import * as repo from "./repo";
 import { dockerAvailable, BOX_IMAGE } from "./computer/shell";
 import { defaultMode } from "./computer";
 import { knownModels, hasKey, keySource } from "./agent/client";
+import { chatGPTStatus } from "./agent/chatgpt";
 import { COMPUTER_ENABLED } from "./agent/tools";
 import { skyInstalled } from "./computer/sky";
 import { cloudKeySource } from "./computer/cloud";
@@ -22,6 +23,7 @@ export function computerInfo(): ComputerInfo {
     computerTool: COMPUTER_ENABLED ? "computer" : "off",
     hasKey: hasKey(),
     keySource: keySource(),
+    chatgpt: chatGPTStatus(),
     cloudKey: cloudKeySource(),
     openRouter: openRouterSource(),
     triggersKey: triggersKeySource(),

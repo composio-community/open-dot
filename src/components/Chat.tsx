@@ -45,7 +45,7 @@ export default function Chat({ dot, conversation }: { dot: Dot; conversation?: s
   const mine = useMemo(() => conversations.filter((c) => c.dotId === dot.id).sort((a, b) => b.updatedAt - a.updatedAt), [conversations, dot.id]);
   const convId = conversation === "new" ? null : conversation ?? mine[0]?.id ?? null;
   const messages = useMemo(() => (convId ? all.filter((m) => m.conversationId === convId && !m.channelId) : []), [all, convId]);
-  const hasKey = useStore((s) => s.computer.hasKey || s.computer.openRouter !== null);
+  const canThink = useStore((s) => s.computer.hasKey || s.computer.chatgpt.sharing || s.computer.openRouter !== null);
   const [, start] = useTransition();
   // A chat counts as started once you've written, or talked in voice mode.
   const fresh = !messages.some((m) => m.role === "user" || m.from === "voice");
@@ -109,12 +109,12 @@ export default function Chat({ dot, conversation }: { dot: Dot; conversation?: s
         </div>
 
         <div className="w-full px-3 pb-3 sm:px-6 sm:pb-5">
-          {!hasKey && (
+          {!canThink && (
             <div className="mb-2 flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/[0.08] px-3.5 py-2 text-body-sm">
               <ShieldAlert className="size-4 text-warning" strokeWidth={1.75} />
               <span>
-                Add an OpenAI or OpenRouter key in{" "}
-                <Link href="/settings#api-key" className="underline underline-offset-2">
+                Connect ChatGPT, OpenAI API, or OpenRouter in{" "}
+                <Link href="/settings#chatgpt-plan" className="underline underline-offset-2">
                   Settings
                 </Link>{" "}
                 so your dots can think.

@@ -1,13 +1,14 @@
 import "server-only";
-import { clientFor, models } from "./agent/client";
+import { clientFor, completedResponse, models } from "./agent/client";
 import * as repo from "./repo";
 
 /** Give a new conversation a short title from its first message (cheap model, in the background). */
 export async function autoTitle(convId: string, firstMessage: string) {
   const fallback = firstMessage.replace(/\s+/g, " ").trim().slice(0, 48) || "New chat";
   try {
-    const { client, model, stateless } = clientFor((await models()).review);
-    const r = await client.responses.create({
+    const target = await clientFor((await models()).review);
+    const { model, stateless } = target;
+    const r = await completedResponse(target, {
       model,
       ...(stateless ? { store: false } : {}),
       instructions:

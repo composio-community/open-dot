@@ -1,5 +1,5 @@
 import "server-only";
-import { clientFor, models } from "./client";
+import { clientFor, completedResponse, models } from "./client";
 import * as repo from "../repo";
 import type { Rule, RuleDecision } from "@/lib/types";
 
@@ -15,8 +15,9 @@ export async function review(dotId: string, action: string, fallback: RuleDecisi
 
   const list = rules.map((r, i) => `${i + 1}. When the dot wants to ${r.action} → ${r.decision === "allow" ? "allow automatically" : r.decision === "ask" ? "ask first" : "never allow"}`).join("\n");
   try {
-    const { client, model, stateless } = clientFor((await models()).review);
-    const res = await client.responses.create({
+    const target = await clientFor((await models()).review);
+    const { model, stateless } = target;
+    const res = await completedResponse(target, {
       model,
       ...(stateless ? { store: false } : {}),
       instructions:

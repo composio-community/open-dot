@@ -153,6 +153,7 @@ export type ComputerInfo = {
   computerTool: string;
   hasKey: boolean;
   keySource: "env" | "settings" | null;
+  chatgpt: { connected: boolean; sharing: boolean; email: string | null; name: string | null };
   cloudKey: "env" | "settings" | null; // E2B key for cloud computers
   openRouter: "env" | "settings" | null; // OpenRouter key for open models
   triggersKey: "env" | "settings" | null; // Composio API key for triggers
