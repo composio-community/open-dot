@@ -155,7 +155,7 @@ export default function SetupPane({ dot }: { dot: Dot }) {
           <DotTriggers dot={dot} />
         </Section>
 
-        <Section eyebrow="Memory" title="What it knows about you" description={`${dot.name} adds to this as you work together. Remove anything that's wrong.`}>
+        <Section eyebrow="Memory" title="Long-term memory" description={`${dot.name} keeps durable facts here. Relevant memories and older chats are retrieved when needed instead of loading everything into every turn.`}>
           <div className="space-y-3">
             {memories.length > 0 ? (
               <div className="surface divide-y divide-black/[0.06]">

@@ -7,6 +7,7 @@ import { credentialFor } from "../vault";
 import { emit } from "../bus";
 import * as composio from "../composio";
 import * as files from "../files";
+import { formatMemorySearch, searchMemory } from "../memory";
 import type { Dot, RuleDecision } from "@/lib/types";
 
 export type ToolCtx = { dot: Dot; signal: AbortSignal; depth: number };
@@ -39,6 +40,7 @@ const obj = (properties: Record<string, unknown>, required = Object.keys(propert
 });
 const str = (description: string) => ({ type: "string", description });
 const nullableStr = (description: string) => ({ type: ["string", "null"], description });
+const nullableNum = (description: string, minimum = 0, maximum = 1) => ({ type: ["number", "null"], description, minimum, maximum });
 const s = (v: unknown) => String(v ?? "");
 
 // Delegation is injected by the runtime to avoid a circular import.
@@ -154,16 +156,59 @@ export const TOOLS: ToolDef[] = [
   {
     name: "remember",
     label: "Remembering",
-    description: "Save a durable fact or preference about the user or their work to your memory, so you know it in future conversations.",
-    parameters: obj({ fact: str("The fact, written as a short standalone sentence") }),
-    execute: async (a, ctx) => (repo.addMemory(ctx.dot.id, s(a.fact)), "Saved to memory."),
+    description: "Save a durable fact or preference for future conversations. Search first when a similar memory may exist. Use importance 0.9-1.0 for standing preferences/identity the dot should almost always know, ~0.75 for useful stable facts, and lower values for secondary details.",
+    parameters: obj({
+      fact: str(`The durable fact, written as a short standalone sentence (max ${repo.MEMORY_MAX_CHARS} characters)`),
+      importance: nullableNum("0-1 importance, or null for the default 0.75"),
+    }),
+    execute: async (a, ctx) => {
+      const fact = s(a.fact).trim();
+      if (Array.from(fact).length > repo.MEMORY_MAX_CHARS) return `Memory is too long. Keep it under ${repo.MEMORY_MAX_CHARS} characters.`;
+      const importance = a.importance == null ? 0.75 : Math.max(0, Math.min(1, Number(a.importance)));
+      const memory = repo.addMemory(ctx.dot.id, fact, Number.isFinite(importance) ? importance : 0.75);
+      return `Saved memory [${memory.id}].`;
+    },
+  },
+  {
+    name: "search_memory",
+    label: "Searching memory",
+    description: "Search your durable memories and older chats. Use this when the user refers to something from the past, or before saving a fact that may duplicate an existing memory. Try alternate or translated keywords when needed.",
+    parameters: obj({ query: str("A short memory search query; keywords work best") }),
+    execute: async (a, ctx) =>
+      formatMemorySearch(
+        searchMemory(ctx.dot.id, s(a.query), { currentConversationId: repo.currentConversation(ctx.dot.id), memoryLimit: 8, episodeLimit: 5, fallback: false, dotName: ctx.dot.name }),
+      ),
+  },
+  {
+    name: "update_memory",
+    label: "Updating memory",
+    description: "Replace or consolidate an existing durable memory after search_memory finds a stale, duplicate, or incomplete fact.",
+    parameters: obj({
+      memory_id: str("The memory ID to update"),
+      fact: str(`The complete replacement fact (max ${repo.MEMORY_MAX_CHARS} characters)`),
+      importance: nullableNum("New 0-1 importance, or null to preserve the current value"),
+    }),
+    execute: async (a, ctx) => {
+      const current = repo.getMemory(s(a.memory_id));
+      if (!current || current.dotId !== ctx.dot.id) return `No memory ${s(a.memory_id)} belongs to this dot.`;
+      const fact = s(a.fact).trim();
+      if (Array.from(fact).length > repo.MEMORY_MAX_CHARS) return `Memory is too long. Keep it under ${repo.MEMORY_MAX_CHARS} characters.`;
+      const importance = a.importance == null ? undefined : Number(a.importance);
+      const updated = repo.updateMemory(current.id, fact, importance != null && Number.isFinite(importance) ? importance : undefined);
+      return updated ? `Updated memory [${updated.id}].` : "Memory could not be updated.";
+    },
   },
   {
     name: "forget",
     label: "Updating memory",
     description: "Delete a memory that is wrong or outdated.",
     parameters: obj({ memory_id: str("The id shown in your memory list") }),
-    execute: async (a) => (repo.deleteMemory(s(a.memory_id)), "Forgotten."),
+    execute: async (a, ctx) => {
+      const current = repo.getMemory(s(a.memory_id));
+      if (!current || current.dotId !== ctx.dot.id) return `No memory ${s(a.memory_id)} belongs to this dot.`;
+      repo.deleteMemory(current.id);
+      return "Forgotten.";
+    },
   },
   {
     name: "save_skill",

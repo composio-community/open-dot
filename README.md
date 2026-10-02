@@ -11,7 +11,7 @@ OpenAI launched Dots on September 29, personal agents that keep working in the b
 - You can call it and talk. Anything you ask for on the call keeps running after you hang up, and the whole call shows up in the chat so you can carry on in text.
 - You can put it on a schedule, like a brief of your inbox and calendar every weekday at 8, and it posts each run to its own chat and sends you a notification.
 - Triggers wake a dot when something happens in your apps, like an email from your bank or a new issue on your repo, and it does what you told it to for that trigger. They're optional and need a Composio API key.
-- You can make a few dots with different jobs, and they can pass work to each other. Each one remembers things about you and saves skills for tasks it repeats.
+- You can make a few dots with different jobs, and they can pass work to each other. Each one keeps durable memory and can retrieve relevant excerpts from older chats with local SQLite search instead of loading its whole history into every prompt. It also saves skills for tasks it repeats.
 - It can run code in its own workspace, either on an E2B cloud computer, in a local Docker container or in a folder on your Mac.
 
 ## Get it running on your Mac
@@ -69,6 +69,7 @@ In development everything is stored in `.data/` in the project folder.
 - Routines and triggers only run while the app is open. A routine that comes due while your Mac is asleep gets skipped, and so do trigger events that arrive then.
 - Most triggers fire within seconds. Ones with an Interval setting, like Gmail's, can take up to that many minutes.
 - Open models don't get OpenAI's computer tool. They click and type by the text on the page instead, which works on most sites but not on things drawn on a canvas. Voice calls still need an OpenAI key.
+- Long-term chat retrieval uses SQLite FTS5 `unicode61` as a zero-service baseline. Languages without whitespace word boundaries (notably CJK) have limited lexical recall today; `search_memory` can retry with alternate/entity terms, and the retrieval layer is isolated so a trigram/vector scorer can be added later.
 - For bookings and purchases, the site needs a card saved in your account there, or you take over for the payment step.
 - Open Dot isn't affiliated with OpenAI.
 
@@ -82,8 +83,9 @@ src/server/
                        approval cards that pause and resume a run, pause and stop
   agent/tools.ts       the dot's tools and how risky each one is
   agent/review.ts      checks an action against your rules
-  agent/prompt.ts      the system prompt, rebuilt every turn from rules, memory, skills and routines
+  agent/prompt.ts      the system prompt, rebuilt every turn from rules, retrieved memory, skills and routines
   agent/openrouter.ts  open models through OpenRouter, which keeps no history, so the app keeps it per chat
+  memory.ts            local long-term retrieval over durable memories and past chats (SQLite FTS5 + ranking)
   computer/            one interface over E2B cloud computers, Docker and local folders
   computer/browser.ts  each dot's Chrome profile, computer-use actions, the live view you can take over
   composio.ts          Composio sign-in and app connections

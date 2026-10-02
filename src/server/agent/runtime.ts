@@ -4,6 +4,7 @@ import type {
 } from "openai/resources/responses/responses";
 import { clientFor, isReasoningModel, modelFor, supportsComputerTool } from "./client";
 import { systemPrompt, type Trigger } from "./prompt";
+import { memoryContext as retrieveMemoryContext } from "../memory";
 import { COMPUTER_ENABLED, findTool, setConsult, toolsForDot, type ToolCtx } from "./tools";
 import { review } from "./review";
 import * as repo from "../repo";
@@ -171,7 +172,9 @@ export async function resolveCard(messageId: string, choice: "approve" | "deny" 
     }
     pending.index++;
     if (await processCalls(dot, pending, signal)) return;
-    await drive(dot, pending.responseId, pending.outputs, pending.trigger, signal);
+    const latestUser = repo.conversationMessages(convId, 30).filter((m) => m.role === "user" && m.text).at(-1)?.text ?? card.title;
+    const memoryCtx = retrieveMemoryContext(dot.id, latestUser, convId, dot.name);
+    await drive(dot, pending.responseId, pending.outputs, pending.trigger, signal, memoryCtx.durable);
   });
 }
 
@@ -240,6 +243,10 @@ function notifyFinished(dot: Dot, since: number) {
   emit({ type: "notify", dotId: dot.id, title: last.role === "card" ? `${dot.name} needs you` : dot.name, body: body.slice(0, 160) });
 }
 
+function historicalMemoryInput(history: string | null): ResponseInputItem[] {
+  return history ? [{ role: "assistant", content: history }] : [];
+}
+
 async function turn(dotId: string, text: string, trigger: Trigger, signal: AbortSignal, attachments: Attachment[], conversationId: string) {
   repo.routeToConversation(dotId, conversationId);
   repo.routeToChannel(dotId, trigger.kind === "channel" ? trigger.channelId : null);
@@ -261,23 +268,25 @@ async function turn(dotId: string, text: string, trigger: Trigger, signal: Abort
   }
   const { stateless } = clientFor(await modelFor(dot.model));
   if (!fresh && (stateless ? !repo.getHistory(dotId).length : !thread)) input.unshift(...rebuildContext(dotId, text));
+  const memoryCtx = retrieveMemoryContext(dot.id, text, conversationId, dot.name);
+  input.push(...historicalMemoryInput(memoryCtx.history));
   input.push(userInput(text, attachments));
-  await drive(dot, thread, input, trigger, signal);
+  await drive(dot, thread, input, trigger, signal, memoryCtx.durable);
 }
 
-async function drive(dot: Dot, prevId: string | null, input: ResponseInputItem[], trigger: Trigger, signal: AbortSignal) {
+async function drive(dot: Dot, prevId: string | null, input: ResponseInputItem[], trigger: Trigger, signal: AbortSignal, memoryCtx: string) {
   for (let step = 0; step < MAX_STEPS; step++) {
     signal.throwIfAborted();
     let resp: Response;
     try {
-      resp = await respond(dot, prevId, input, trigger, signal);
+      resp = await respond(dot, prevId, input, trigger, signal, memoryCtx);
     } catch (err) {
       if (!prevId || signal.aborted || clientFor(await modelFor(dot.model)).stateless || !/previous|not found|No tool output/i.test(String(err))) throw err;
       // The server-side thread is gone or broken: rebuild from our transcript and carry on.
       const userText = input.filter((i) => "role" in i && i.role === "user").map((i) => ("content" in i ? String(i.content) : "")).join("\n");
       input = [...rebuildContext(dot.id, userText), { role: "user", content: userText || "Continue." }];
       prevId = null;
-      resp = await respond(dot, null, input, trigger, signal);
+      resp = await respond(dot, null, input, trigger, signal, memoryCtx);
     }
     repo.setThread(dot.id, clientFor(await modelFor(dot.model)).stateless ? null : resp.id, null);
 
@@ -292,7 +301,7 @@ async function drive(dot: Dot, prevId: string | null, input: ResponseInputItem[]
 }
 
 /** Stream one model response, mirroring text into the transcript as it arrives. */
-async function respond(dot: Dot, prevId: string | null, input: ResponseInputItem[], trigger: Trigger, signal: AbortSignal): Promise<Response> {
+async function respond(dot: Dot, prevId: string | null, input: ResponseInputItem[], trigger: Trigger, signal: AbortSignal, memoryCtx: string): Promise<Response> {
   const appModel = await modelFor(dot.model);
   const { client, model, stateless } = clientFor(appModel);
   const tools: Tool[] = [
@@ -307,10 +316,10 @@ async function respond(dot: Dot, prevId: string | null, input: ResponseInputItem
   repo.setActivity(dot.id, "Thinking");
   const stream = await client.responses.create(
     stateless
-      ? { model, instructions: systemPrompt(dot, trigger), input: [...history, ...input], tools, parallel_tool_calls: false, store: false, stream: true }
+      ? { model, instructions: systemPrompt(dot, trigger, memoryCtx), input: [...history, ...input], tools, parallel_tool_calls: false, store: false, stream: true }
       : {
           model,
-          instructions: systemPrompt(dot, trigger),
+          instructions: systemPrompt(dot, trigger, memoryCtx),
           input,
           previous_response_id: prevId ?? undefined,
           tools,
@@ -366,7 +375,10 @@ async function respond(dot: Dot, prevId: string | null, input: ResponseInputItem
     for (const d of drafts.values()) repo.updateMessage(d.id, { text: d.text || "…" });
   }
   if (!final) throw new Error("The model stream ended unexpectedly");
-  if (stateless) repo.setHistory(dot.id, trimHistory([...history, ...input, ...replayable(final.output)]));
+  if (stateless) {
+    const persistentInput = input.filter((item) => !("role" in item && item.role === "assistant" && typeof item.content === "string" && item.content.startsWith("<retrieved_history>")));
+    repo.setHistory(dot.id, trimHistory([...history.filter((item) => !("role" in item && item.role === "assistant" && typeof item.content === "string" && item.content.startsWith("<retrieved_history>"))), ...persistentInput, ...replayable(final.output)]));
+  }
   return final;
 }
 
@@ -541,11 +553,12 @@ setConsult(async (target, message, from, _depth, signal) => {
   repo.setActivity(target.id, `Helping ${from.name}`);
   try {
     const { client, model, stateless } = clientFor(await modelFor(target.model));
+    const targetMemory = retrieveMemoryContext(target.id, message, repo.currentConversation(target.id), target.name);
     const res = await client.responses.create(
       {
         model,
-        instructions: systemPrompt(target, { kind: "dot", from: from.name }),
-        input: [...rebuildContext(target.id, message).slice(-12), { role: "user", content: `${from.name} asks: ${message}` }],
+        instructions: systemPrompt(target, { kind: "dot", from: from.name }, targetMemory.durable),
+        input: [...rebuildContext(target.id, message).slice(-12), ...historicalMemoryInput(targetMemory.history), { role: "user", content: `${from.name} asks: ${message}` }],
         tools: [stateless ? ({ type: "openrouter:web_search" } as unknown as Tool) : { type: "web_search" }],
         ...(stateless ? { store: false } : isReasoningModel(model) ? { reasoning: { effort: "low" as const } } : {}),
       },

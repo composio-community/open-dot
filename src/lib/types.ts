@@ -90,7 +90,10 @@ export type Channel = { id: string; name: string; leadId: string; memberIds: str
 
 export type RuleDecision = "allow" | "ask" | "never";
 export type Rule = { id: string; dotId: string | null; action: string; decision: RuleDecision; createdAt: number };
-export type Memory = { id: string; dotId: string; text: string; createdAt: number };
+export type Memory = {
+  id: string; dotId: string; text: string; importance: number; accessCount: number;
+  lastAccessedAt: number | null; createdAt: number; updatedAt: number;
+};
 export type Skill = { id: string; dotId: string; name: string; description: string; body: string; createdAt: number };
 /** A Composio trigger: when something happens in one of the user's apps, a dot runs an instruction. */
 // Picking a trigger: apps connected for triggers, and the events each app offers.
