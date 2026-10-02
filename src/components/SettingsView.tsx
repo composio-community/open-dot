@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useSyncExternalStore, useTransition } from "react";
+import { Children, useState, useSyncExternalStore, useTransition, type ReactNode } from "react";
 import { useSearchParams } from "next/navigation";
 import { Bell, KeyRound, Lock, LogOut, Plus, RefreshCw } from "lucide-react";
-import { connectApp, deletePassword, refreshApps, savePassword, setCloudKey, setDefaultModel, setOpenAIKey, setOpenRouterKey, signInComposio, signOutComposio } from "@/app/actions";
+import { connectApp, deletePassword, refreshApps, refreshModels, savePassword, setCloudKey, setDefaultModel, setOpenAIKey, setOpenCodeProduct, setOpenRouterKey, signInComposio, signOutComposio } from "@/app/actions";
 import { useStore } from "@/lib/store";
 import { openAfter } from "@/lib/popup";
 import { Empty, PageHeader, RemoveButton, RuleEditor, Section } from "./SettingsKit";
@@ -15,7 +15,6 @@ const notificationPermission = () => ("Notification" in window ? Notification.pe
 
 export default function SettingsView() {
   const passwords = useStore((s) => s.passwords);
-  const computer = useStore((s) => s.computer);
   const permission = useSyncExternalStore(noop, notificationPermission, () => "default");
   const [, force] = useState(0);
   const [form, setForm] = useState({ site: "", username: "", password: "" });
@@ -121,30 +120,7 @@ export default function SettingsView() {
           </div>
         </Section>
 
-        <Section eyebrow="Engine" title="Models & computers" description="Models come from what your OpenAI key can use, plus open models once you add an OpenRouter key.">
-          <ApiKey />
-          <OpenModelsKey />
-          <CloudKey />
-          <div className="surface mb-3 flex items-center gap-3 p-4">
-            <div className="flex-1">
-              <div className="text-[14px]">Default model</div>
-              <div className="text-body-sm text-foreground/55">Used by every dot that doesn&apos;t pick its own (pick per dot from its header).</div>
-            </div>
-            <ModelPicker allowDefault={false} value={computer.model || null} onChange={(m) => start(() => setDefaultModel(m))} />
-          </div>
-          <dl className="surface divide-y divide-black/[0.06]">
-            {[
-              ["Models on your key", computer.models.length ? `${computer.models.length} available` : "Loading…", true],
-              ["Computer use", computer.computerTool === "off" ? "Off (page tools only)" : "OpenAI computer tool", true],
-              ["Dot computers", computer.docker ? `Docker containers · ${computer.image}` : "Sandbox folders (start Docker for containers)", computer.docker],
-            ].map(([k, v, ok]) => (
-              <div key={String(k)} className="flex items-center gap-4 px-4 py-2.5">
-                <dt className="eyebrow w-36 shrink-0">{k}</dt>
-                <dd className={`flex-1 text-body-sm ${ok ? "" : "text-warning"}`}>{v}</dd>
-              </div>
-            ))}
-          </dl>
-        </Section>
+        <EngineSettings />
       </div>
     </div>
   );
@@ -251,174 +227,97 @@ function AppsList() {
   );
 }
 
-/** The OpenAI key: paste it here (stored encrypted), unless it comes from OPENAI_API_KEY. */
+function EngineSettings() {
+  const computer = useStore((s) => s.computer);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  const computerLabel = computer.docker ? `Docker · ${computer.image}` : "Local sandbox folders";
+  return (
+    <Section eyebrow="Engine" title="Models & computers" description="Choose where dots think and run. Connected providers stay compact until you need to manage them.">
+      <div className="surface overflow-hidden">
+        <div className="flex items-center gap-3 px-4 py-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-medium">Default model</div>
+            <div className="text-[12px] text-foreground/50">Used by dots that don&apos;t choose their own model.</div>
+          </div>
+          <ModelPicker allowDefault={false} value={computer.model || null} onChange={(m) => start(() => setDefaultModel(m))} compact />
+        </div>
+        <OpenCodeKey />
+        <ApiKey />
+        <OpenModelsKey />
+        <CloudKey />
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-caption text-foreground/45">
+        <span>{computer.models.length ? `${computer.models.length} models` : "Loading models…"}</span><span>·</span>
+        <span>{computer.computerTool === "off" ? "Page tools" : "OpenAI computer tool"}</span><span>·</span><span>{computerLabel}</span>
+        <button className="btn-quiet ml-auto h-7 px-2.5 text-[12px]" disabled={pending} onClick={() => start(async () => setError(await refreshModels()))}>
+          <RefreshCw className={`size-3.5 ${pending ? "animate-spin" : ""}`} strokeWidth={1.75} /> Refresh models
+        </button>
+      </div>
+      {error && <p className="mt-2 text-caption text-destructive">{error}</p>}
+    </Section>
+  );
+}
+
+function EngineRow({ id, title, detail, connected, action, children }: { id?: string; title: string; detail: ReactNode; connected: boolean; action?: ReactNode; children?: ReactNode }) {
+  const hasDetails = Children.toArray(children).length > 0;
+  return (
+    <div id={id} className="border-t border-black/[0.06] scroll-mt-6">
+      <div className="flex min-h-14 items-center gap-3 px-4 py-2.5">
+        <span className={`size-1.5 shrink-0 rounded-full ${connected ? "bg-success" : "bg-foreground/15"}`} />
+        <div className="min-w-0 flex-1"><div className="text-[13px] font-medium">{title}</div><div className="truncate text-[12px] leading-5 text-foreground/50">{detail}</div></div>
+        {action}
+      </div>
+      {hasDetails && <div className="border-t border-black/[0.05] bg-black/[0.015] px-4 py-3">{children}</div>}
+    </div>
+  );
+}
+
+function OpenCodeKey() {
+  const computer = useStore((s) => s.computer);
+  const [editing, setEditing] = useState(false);
+  const goCount = computer.models.filter((m) => m.startsWith("opencode-go:")).length;
+  const zenCount = computer.models.filter((m) => m.startsWith("opencode-zen:")).length;
+  const connected = (computer.openCode.go.enabled && computer.openCode.go.source !== null) || (computer.openCode.zen.enabled && computer.openCode.zen.source !== null);
+  const enabled = [computer.openCode.go.enabled && computer.openCode.go.source ? `Go${goCount ? ` · ${goCount}` : ""}` : null, computer.openCode.zen.enabled && computer.openCode.zen.source ? `Zen${zenCount ? ` · ${zenCount}` : ""}` : null].filter(Boolean).join(" + ");
+  return (
+    <EngineRow id="opencode-key" title="OpenCode" connected={connected} detail={connected ? enabled : "Go subscription or Zen pay-as-you-go"} action={<button className="btn-secondary h-7 px-2.5 text-[12px]" onClick={() => setEditing((v) => !v)}>{editing ? "Done" : connected ? "Manage" : "Add"}</button>}>
+      {editing && <div className="space-y-2"><OpenCodeProductRow product="go" title="Go" subtitle="Subscription · coding models" status={computer.openCode.go} modelCount={goCount} /><OpenCodeProductRow product="zen" title="Zen" subtitle="Pay as you go · curated models" status={computer.openCode.zen} modelCount={zenCount} /><p className="text-caption text-foreground/45">Responses + Chat Completions models are shown. Messages/Gemini protocol models stay hidden for now.</p></div>}
+    </EngineRow>
+  );
+}
+
+function OpenCodeProductRow({ product, title, subtitle, status, modelCount }: { product: "go" | "zen"; title: string; subtitle: string; status: { source: "settings" | "cli" | "env" | null; enabled: boolean }; modelCount: number }) {
+  const [key, setKey] = useState(""); const [editingKey, setEditingKey] = useState(false); const [error, setError] = useState<string | null>(null); const [pending, start] = useTransition();
+  const sourceLabel = status.source === "cli" ? "OpenCode CLI" : status.source === "env" ? "Environment" : status.source === "settings" ? "Encrypted local key" : "No key";
+  const save = (enabled: boolean, removeKey = false) => start(async () => { const err = await setOpenCodeProduct(product, key, enabled, removeKey); setError(err); if (!err) { setKey(""); setEditingKey(false); } });
+  return <div className="rounded-md border border-black/[0.07] bg-card px-3 py-2.5">
+    <div className="flex items-center gap-3"><span className={`size-1.5 shrink-0 rounded-full ${status.enabled && status.source ? "bg-success" : "bg-foreground/15"}`} /><div className="min-w-0 flex-1"><div className="flex items-baseline gap-2"><span className="text-[13px] font-medium">{title}</span><span className="text-[11px] text-foreground/40">{subtitle}</span></div><div className="text-[11px] text-foreground/45">{sourceLabel}{status.enabled && modelCount ? ` · ${modelCount} models` : ""}</div></div>{status.source && <button className="btn-quiet h-7 px-2 text-[12px]" disabled={pending} onClick={() => save(!status.enabled)}>{status.enabled ? "Disable" : "Enable"}</button>}<button className="btn-secondary h-7 px-2 text-[12px]" onClick={() => setEditingKey((v) => !v)}>{editingKey ? "Cancel" : status.source === "settings" ? "Change key" : status.source ? "Override key" : "Add key"}</button></div>
+    {(editingKey || !status.source) && <div className="mt-2 flex gap-2"><input className="field font-mono text-[12px]" type="password" placeholder={`${title} API key`} value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />{status.source === "settings" && <button className="btn-quiet shrink-0" disabled={pending} onClick={() => save(false, true)}>Remove</button>}<button className="btn-primary shrink-0" disabled={pending || !key.trim()} onClick={() => save(true)}>{pending ? "Saving…" : "Save & enable"}</button></div>}
+    {error && <p className="mt-2 text-caption text-destructive">{error}</p>}
+  </div>;
+}
+
 function ApiKey() {
-  const computer = useStore((s) => s.computer);
-  const [editing, setEditing] = useState(false);
-  const [key, setKey] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [pending, start] = useTransition();
-  const open = editing || !computer.hasKey;
-
-  return (
-    <div id="api-key" className="surface mb-3 p-4">
-      <div className="flex items-center gap-3">
-        <div className="flex-1">
-          <div className="text-[14px]">OpenAI API key</div>
-          <div className={`text-body-sm ${computer.hasKey ? "text-foreground/55" : "text-warning"}`}>
-            {computer.keySource === "env"
-              ? "Connected from OPENAI_API_KEY."
-              : computer.hasKey
-                ? "Connected. Stored encrypted on this computer."
-                : "Your dots need one to think. Create one at platform.openai.com."}
-          </div>
-        </div>
-        {computer.hasKey && computer.keySource !== "env" && !editing && (
-          <button className="btn-secondary h-8 px-3 text-[13px]" onClick={() => setEditing(true)}>
-            Change
-          </button>
-        )}
-      </div>
-      {open && computer.keySource !== "env" && (
-        <form
-          className="mt-3 flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            start(async () => {
-              const err = await setOpenAIKey(key);
-              setError(err);
-              if (!err) (setKey(""), setEditing(false));
-            });
-          }}
-        >
-          <input className="field font-mono text-[13px]" type="password" placeholder="sk-..." value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />
-          <button className="btn-primary shrink-0" disabled={pending || !key.trim()}>
-            {pending ? "Checking…" : "Save"}
-          </button>
-        </form>
-      )}
-      {error && <p className="mt-2 text-caption text-destructive">{error}</p>}
-    </div>
-  );
+  const computer = useStore((s) => s.computer); const [editing, setEditing] = useState(false); const [key, setKey] = useState(""); const [error, setError] = useState<string | null>(null); const [pending, start] = useTransition();
+  const save = () => start(async () => { const err = await setOpenAIKey(key); setError(err); if (!err) { setKey(""); setEditing(false); } });
+  return <EngineRow id="api-key" title="OpenAI API" connected={computer.hasKey} detail={computer.keySource === "env" ? "OPENAI_API_KEY" : computer.hasKey ? "Connected · encrypted locally" : "Optional · OpenAI models, voice and native computer use"} action={computer.keySource !== "env" ? <button className="btn-secondary h-7 px-2.5 text-[12px]" onClick={() => setEditing((v) => !v)}>{editing ? "Done" : computer.hasKey ? "Manage" : "Add"}</button> : null}>
+    {editing && computer.keySource !== "env" && <div className="flex gap-2"><input className="field font-mono text-[13px]" type="password" placeholder="sk-..." value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" /><button className="btn-primary shrink-0" disabled={pending || !key.trim()} onClick={save}>{pending ? "Checking…" : "Save"}</button></div>}{error && <p className="mt-2 text-caption text-destructive">{error}</p>}
+  </EngineRow>;
 }
 
-/** Optional E2B key: each dot gets a cloud computer that keeps working while this Mac sleeps. */
-function CloudKey() {
-  const computer = useStore((s) => s.computer);
-  const [editing, setEditing] = useState(false);
-  const [key, setKey] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [pending, start] = useTransition();
-  const saved = computer.cloudKey !== null;
-  const save = (value: string) =>
-    start(async () => {
-      const err = await setCloudKey(value);
-      setError(err);
-      if (!err) (setKey(""), setEditing(false));
-    });
-
-  return (
-    <div id="cloud-key" className="surface mb-3 scroll-mt-6 p-4">
-      <div className="flex items-center gap-3">
-        <div className="flex-1">
-          <div className="text-[14px]">
-            Cloud computers <span className="text-foreground/40">· optional</span>
-          </div>
-          <div className="text-body-sm text-foreground/55">
-            {computer.cloudKey === "env"
-              ? "Connected from E2B_API_KEY."
-              : saved
-                ? "Connected. Each dot gets its own E2B cloud computer that keeps working while your Mac sleeps."
-                : "Paste an E2B API key (from e2b.dev) to give each dot a cloud computer that keeps working while your Mac sleeps."}
-          </div>
-        </div>
-        {computer.cloudKey === "settings" && !editing && (
-          <>
-            <button className="btn-quiet h-8 px-3 text-[13px]" disabled={pending} onClick={() => save("")}>
-              Remove
-            </button>
-            <button className="btn-secondary h-8 px-3 text-[13px]" onClick={() => setEditing(true)}>
-              Change
-            </button>
-          </>
-        )}
-      </div>
-      {(editing || !saved) && computer.cloudKey !== "env" && (
-        <form
-          className="mt-3 flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            save(key);
-          }}
-        >
-          <input className="field font-mono text-[13px]" type="password" placeholder="e2b_..." value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />
-          <button className="btn-primary shrink-0" disabled={pending || !key.trim()}>
-            {pending ? "Checking…" : "Save"}
-          </button>
-        </form>
-      )}
-      {error && <p className="mt-2 text-caption text-destructive">{error}</p>}
-    </div>
-  );
-}
-
-/** Optional OpenRouter key: adds open models (Qwen, DeepSeek, Kimi, GLM, Llama, gpt-oss…) to every model picker. */
 function OpenModelsKey() {
-  const computer = useStore((s) => s.computer);
-  const openCount = computer.models.filter((m) => m.startsWith("openrouter:")).length;
-  const [editing, setEditing] = useState(false);
-  const [key, setKey] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [pending, start] = useTransition();
-  const saved = computer.openRouter !== null;
-  const save = (value: string) =>
-    start(async () => {
-      const err = await setOpenRouterKey(value);
-      setError(err);
-      if (!err) (setKey(""), setEditing(false));
-    });
+  const computer = useStore((s) => s.computer); const count = computer.models.filter((m) => m.startsWith("openrouter:")).length; const [editing, setEditing] = useState(false); const [key, setKey] = useState(""); const [error, setError] = useState<string | null>(null); const [pending, start] = useTransition(); const connected = computer.openRouter !== null;
+  const save = (value: string) => start(async () => { const err = await setOpenRouterKey(value); setError(err); if (!err) { setKey(""); setEditing(false); } });
+  return <EngineRow id="open-models" title="OpenRouter" connected={connected} detail={computer.openRouter === "env" ? `OPENROUTER_API_KEY${count ? ` · ${count} models` : ""}` : connected ? `Connected${count ? ` · ${count} models` : ""}` : "Optional · broad open-model catalog"} action={computer.openRouter !== "env" ? <button className="btn-secondary h-7 px-2.5 text-[12px]" onClick={() => setEditing((v) => !v)}>{editing ? "Done" : connected ? "Manage" : "Add"}</button> : null}>
+    {editing && computer.openRouter !== "env" && <div className="flex gap-2"><input className="field font-mono text-[13px]" type="password" placeholder="sk-or-..." value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />{computer.openRouter === "settings" && <button className="btn-quiet shrink-0" disabled={pending} onClick={() => save("")}>Remove</button>}<button className="btn-primary shrink-0" disabled={pending || !key.trim()} onClick={() => save(key)}>{pending ? "Checking…" : "Save"}</button></div>}{error && <p className="mt-2 text-caption text-destructive">{error}</p>}
+  </EngineRow>;
+}
 
-  return (
-    <div id="open-models" className="surface mb-3 scroll-mt-6 p-4">
-      <div className="flex items-center gap-3">
-        <div className="flex-1">
-          <div className="text-[14px]">
-            Open models <span className="text-foreground/40">· optional</span>
-          </div>
-          <div className="text-body-sm text-foreground/55">
-            {computer.openRouter === "env"
-              ? `Connected from OPENROUTER_API_KEY${openCount ? ` · ${openCount} open models in the model picker` : ""}.`
-              : saved
-                ? `Connected${openCount ? ` · ${openCount} open models in the model picker` : ""}. Voice calls still use OpenAI.`
-                : "Paste an OpenRouter key (from openrouter.ai) to run dots on open models like Qwen, DeepSeek, Kimi, GLM and Llama."}
-          </div>
-        </div>
-        {computer.openRouter === "settings" && !editing && (
-          <>
-            <button className="btn-quiet h-8 px-3 text-[13px]" disabled={pending} onClick={() => save("")}>
-              Remove
-            </button>
-            <button className="btn-secondary h-8 px-3 text-[13px]" onClick={() => setEditing(true)}>
-              Change
-            </button>
-          </>
-        )}
-      </div>
-      {(editing || !saved) && computer.openRouter !== "env" && (
-        <form
-          className="mt-3 flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            save(key);
-          }}
-        >
-          <input className="field font-mono text-[13px]" type="password" placeholder="sk-or-..." value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />
-          <button className="btn-primary shrink-0" disabled={pending || !key.trim()}>
-            {pending ? "Checking…" : "Save"}
-          </button>
-        </form>
-      )}
-      {error && <p className="mt-2 text-caption text-destructive">{error}</p>}
-    </div>
-  );
+function CloudKey() {
+  const computer = useStore((s) => s.computer); const [editing, setEditing] = useState(false); const [key, setKey] = useState(""); const [error, setError] = useState<string | null>(null); const [pending, start] = useTransition(); const connected = computer.cloudKey !== null;
+  const save = (value: string) => start(async () => { const err = await setCloudKey(value); setError(err); if (!err) { setKey(""); setEditing(false); } });
+  return <EngineRow id="cloud-key" title="Cloud computers" connected={connected} detail={computer.cloudKey === "env" ? "E2B_API_KEY" : connected ? "Connected · keeps dots running while this Mac sleeps" : "Optional · E2B background computers"} action={computer.cloudKey !== "env" ? <button className="btn-secondary h-7 px-2.5 text-[12px]" onClick={() => setEditing((v) => !v)}>{editing ? "Done" : connected ? "Manage" : "Add"}</button> : null}>
+    {editing && computer.cloudKey !== "env" && <div className="flex gap-2"><input className="field font-mono text-[13px]" type="password" placeholder="e2b_..." value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />{computer.cloudKey === "settings" && <button className="btn-quiet shrink-0" disabled={pending} onClick={() => save("")}>Remove</button>}<button className="btn-primary shrink-0" disabled={pending || !key.trim()} onClick={() => save(key)}>{pending ? "Checking…" : "Save"}</button></div>}{error && <p className="mt-2 text-caption text-destructive">{error}</p>}
+  </EngineRow>;
 }

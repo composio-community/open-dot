@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useTransition } from "react";
 import { MessageSquare, Monitor, Pause, Play, SlidersHorizontal, Square, SquarePen } from "lucide-react";
-import { pauseDot, resumeDot, setDotModel, stopDot } from "@/app/actions";
+import { pauseDot, resumeDot, setConversationModel, setDotModel, stopDot } from "@/app/actions";
 import { useStore } from "@/lib/store";
 import { statusDot, statusLine } from "@/lib/status";
 import DotOrb from "./DotOrb";
@@ -26,6 +26,7 @@ function IconLink({ href, active, label, children }: { href: string; active?: bo
 export default function DotView({ dotId, tab, conversation }: { dotId: string; tab: Tab; conversation?: string }) {
   const dot = useStore((s) => s.dots.find((d) => d.id === dotId));
   const loaded = useStore((s) => s.loaded);
+  const activeConversation = useStore((s) => conversation && conversation !== "new" ? s.conversations.find((c) => c.id === conversation) : undefined);
   const [pending, start] = useTransition();
 
   if (!dot) {
@@ -51,7 +52,7 @@ export default function DotView({ dotId, tab, conversation }: { dotId: string; t
 
         <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
           <span className="hidden items-center sm:flex">
-            <ModelPicker compact value={dot.model} onChange={(m) => start(() => setDotModel(dot.id, m))} />
+            <ModelPicker compact value={activeConversation ? activeConversation.model : dot.model} onChange={(m) => start(() => activeConversation ? setConversationModel(activeConversation.id, m) : setDotModel(dot.id, m))} />
             <span className="mx-1 h-5 w-px bg-black/[0.08]" />
           </span>
           {tab === "chat" ? (

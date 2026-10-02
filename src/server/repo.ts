@@ -113,7 +113,7 @@ export function deleteDot(dotId: string) {
 // Routines and channel work use hidden conversations (kind "routine" / "channel") so they don't clutter the list.
 
 const toConversation = (r: Row): Conversation => ({
-  id: r.id as string, dotId: r.dot_id as string, title: r.title as string, createdAt: r.created_at as number, updatedAt: r.updated_at as number,
+  id: r.id as string, dotId: r.dot_id as string, title: r.title as string, model: (r.model as string) ?? null, createdAt: r.created_at as number, updatedAt: r.updated_at as number,
 });
 
 export function listConversations(dotId?: string): Conversation[] {
@@ -128,10 +128,10 @@ export function getConversation(convId: string): Conversation | null {
   return r ? toConversation(r) : null;
 }
 
-export function createConversation(dotId: string, title = "New chat", kind = "chat", ref: string | null = null): Conversation {
+export function createConversation(dotId: string, title = "New chat", kind = "chat", ref: string | null = null, model: string | null = null): Conversation {
   const convId = id("conv");
-  db().prepare("INSERT INTO conversations (id, dot_id, title, kind, ref, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    .run(convId, dotId, title, kind, ref, now(), now());
+  db().prepare("INSERT INTO conversations (id, dot_id, title, kind, ref, model, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(convId, dotId, title, kind, ref, model, now(), now());
   const c = getConversation(convId)!;
   if (kind === "chat") emit({ type: "conversation", data: c });
   return c;
@@ -151,6 +151,12 @@ export function latestConversationId(dotId: string): string {
 
 export function renameConversation(convId: string, title: string) {
   db().prepare("UPDATE conversations SET title = ? WHERE id = ?").run(title, convId);
+  const c = getConversation(convId);
+  if (c) emit({ type: "conversation", data: c });
+}
+
+export function setConversationModel(convId: string, model: string | null) {
+  db().prepare("UPDATE conversations SET model = ? WHERE id = ?").run(model, convId);
   const c = getConversation(convId);
   if (c) emit({ type: "conversation", data: c });
 }

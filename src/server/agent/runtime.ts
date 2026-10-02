@@ -2,7 +2,7 @@ import "server-only";
 import type {
   ResponseComputerToolCall, ResponseFunctionToolCall, ResponseInputContent, ResponseInputItem, Response, Tool,
 } from "openai/resources/responses/responses";
-import { clientFor, isReasoningModel, modelFor, supportsComputerTool } from "./client";
+import { clientFor, isReasoningModel, modelFor, supportsComputerTool, type ModelClient } from "./client";
 import { systemPrompt, type Trigger } from "./prompt";
 import { COMPUTER_ENABLED, findTool, setConsult, toolsForDot, type ToolCtx } from "./tools";
 import { review } from "./review";
@@ -240,6 +240,16 @@ function notifyFinished(dot: Dot, since: number) {
   emit({ type: "notify", dotId: dot.id, title: last.role === "card" ? `${dot.name} needs you` : dot.name, body: body.slice(0, 160) });
 }
 
+function activeModel(dot: Dot): string | null {
+  const conversation = repo.getConversation(repo.currentConversation(dot.id));
+  return conversation?.model ?? dot.model;
+}
+
+function webSearchTool(target: ModelClient): Tool | null {
+  if (target.provider === "opencode") return null;
+  return target.provider === "openrouter" ? ({ type: "openrouter:web_search" } as unknown as Tool) : { type: "web_search" };
+}
+
 async function turn(dotId: string, text: string, trigger: Trigger, signal: AbortSignal, attachments: Attachment[], conversationId: string) {
   repo.routeToConversation(dotId, conversationId);
   repo.routeToChannel(dotId, trigger.kind === "channel" ? trigger.channelId : null);
@@ -259,7 +269,7 @@ async function turn(dotId: string, text: string, trigger: Trigger, signal: Abort
     repo.resetThread(conversationId);
     thread = null;
   }
-  const { stateless } = clientFor(await modelFor(dot.model));
+  const { stateless } = clientFor(await modelFor(activeModel(dot)));
   if (!fresh && (stateless ? !repo.getHistory(dotId).length : !thread)) input.unshift(...rebuildContext(dotId, text));
   input.push(userInput(text, attachments));
   await drive(dot, thread, input, trigger, signal);
@@ -272,14 +282,14 @@ async function drive(dot: Dot, prevId: string | null, input: ResponseInputItem[]
     try {
       resp = await respond(dot, prevId, input, trigger, signal);
     } catch (err) {
-      if (!prevId || signal.aborted || clientFor(await modelFor(dot.model)).stateless || !/previous|not found|No tool output/i.test(String(err))) throw err;
+      if (!prevId || signal.aborted || clientFor(await modelFor(activeModel(dot))).stateless || !/previous|not found|No tool output/i.test(String(err))) throw err;
       // The server-side thread is gone or broken: rebuild from our transcript and carry on.
       const userText = input.filter((i) => "role" in i && i.role === "user").map((i) => ("content" in i ? String(i.content) : "")).join("\n");
       input = [...rebuildContext(dot.id, userText), { role: "user", content: userText || "Continue." }];
       prevId = null;
       resp = await respond(dot, null, input, trigger, signal);
     }
-    repo.setThread(dot.id, clientFor(await modelFor(dot.model)).stateless ? null : resp.id, null);
+    repo.setThread(dot.id, clientFor(await modelFor(activeModel(dot))).stateless ? null : resp.id, null);
 
     const calls = resp.output.filter((o): o is Call => o.type === "function_call" || o.type === "computer_call");
     if (!calls.length) return;
@@ -293,13 +303,15 @@ async function drive(dot: Dot, prevId: string | null, input: ResponseInputItem[]
 
 /** Stream one model response, mirroring text into the transcript as it arrives. */
 async function respond(dot: Dot, prevId: string | null, input: ResponseInputItem[], trigger: Trigger, signal: AbortSignal): Promise<Response> {
-  const appModel = await modelFor(dot.model);
-  const { client, model, stateless } = clientFor(appModel);
-  const tools: Tool[] = [
-    ...toolsForDot(dot).map((t): Tool => ({ type: "function", name: t.name, description: t.description, parameters: t.parameters, strict: !stateless && t.strict !== false })),
-    // OpenRouter's server-side search: the model decides when to search, same as OpenAI's web_search.
-    stateless ? ({ type: "openrouter:web_search" } as unknown as Tool) : { type: "web_search" },
-  ];
+  const appModel = await modelFor(activeModel(dot));
+  const target = clientFor(appModel);
+  const { client, model, stateless } = target;
+  const search = webSearchTool(target);
+  const tools: Tool[] = toolsForDot(dot).map((t): Tool => ({
+    type: "function", name: t.name, description: t.description, parameters: t.parameters,
+    strict: target.provider === "openai" && t.strict !== false,
+  }));
+  if (search) tools.push(search);
   if (!stateless && COMPUTER_ENABLED && supportsComputerTool(model)) tools.push({ type: "computer" } as Tool);
 
   // Stateless providers get the whole conversation every time; the app keeps it (trimmed) per chat.
@@ -320,7 +332,9 @@ async function respond(dot: Dot, prevId: string | null, input: ResponseInputItem
           store: true,
           stream: true,
         },
-    { signal },
+    target.provider === "opencode"
+      ? { signal, headers: { "User-Agent": "open-dot/0.1.0", "x-opencode-session": repo.currentConversation(dot.id) } }
+      : { signal },
   );
 
   const drafts = new Map<string, { id: string; text: string }>();
@@ -540,16 +554,20 @@ setConsult(async (target, message, from, _depth, signal) => {
   if (!channelId) repo.addMessage({ dotId: target.id, role: "user", text: message, from: `dot:${from.name}` });
   repo.setActivity(target.id, `Helping ${from.name}`);
   try {
-    const { client, model, stateless } = clientFor(await modelFor(target.model));
+    const targetClient = clientFor(await modelFor(activeModel(target)));
+    const { client, model, stateless } = targetClient;
+    const search = webSearchTool(targetClient);
     const res = await client.responses.create(
       {
         model,
         instructions: systemPrompt(target, { kind: "dot", from: from.name }),
         input: [...rebuildContext(target.id, message).slice(-12), { role: "user", content: `${from.name} asks: ${message}` }],
-        tools: [stateless ? ({ type: "openrouter:web_search" } as unknown as Tool) : { type: "web_search" }],
+        tools: search ? [search] : [],
         ...(stateless ? { store: false } : isReasoningModel(model) ? { reasoning: { effort: "low" as const } } : {}),
       },
-      { signal },
+      targetClient.provider === "opencode"
+        ? { signal, headers: { "User-Agent": "open-dot/0.1.0", "x-opencode-session": repo.currentConversation(target.id) } }
+        : { signal },
     );
     const reply = res.output_text || "(no reply)";
     // In a channel the member answers in the channel (the user sees the team at work); otherwise in its own chat.

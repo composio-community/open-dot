@@ -83,7 +83,7 @@ export type Message = {
 };
 
 /** One chat thread with a dot (like a ChatGPT conversation). Memory, skills and rules are shared across them. */
-export type Conversation = { id: string; dotId: string; title: string; createdAt: number; updatedAt: number };
+export type Conversation = { id: string; dotId: string; title: string; model: string | null; createdAt: number; updatedAt: number };
 
 /** A group chat: the user talks to several dots; the lead coordinates and delegates to members. */
 export type Channel = { id: string; name: string; leadId: string; memberIds: string[]; createdAt: number };
@@ -155,6 +155,10 @@ export type ComputerInfo = {
   keySource: "env" | "settings" | null;
   cloudKey: "env" | "settings" | null; // E2B key for cloud computers
   openRouter: "env" | "settings" | null; // OpenRouter key for open models
+  openCode: {
+    go: { source: "settings" | "cli" | "env" | null; enabled: boolean };
+    zen: { source: "settings" | "cli" | "env" | null; enabled: boolean };
+  };
   triggersKey: "env" | "settings" | null; // Composio API key for triggers
   sky: boolean; // OpenAI's Sky computer-use runtime is installed on this Mac
   composio: boolean; // COMPOSIO_API_KEY is set

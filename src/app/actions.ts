@@ -9,6 +9,7 @@ import { emit } from "@/server/bus";
 import { computerInfo } from "@/server/snapshot";
 import { models, resetModels, saveApiKey } from "@/server/agent/client";
 import { saveOpenRouterKey } from "@/server/agent/openrouter";
+import { saveOpenCodeProduct } from "@/server/agent/opencode";
 import * as triggers from "@/server/triggers";
 import * as composio from "@/server/composio";
 import * as voice from "@/server/voice";
@@ -49,8 +50,8 @@ export async function sendMessage(dotId: string, text: string, attachments: Atta
 // ---------- conversations ----------
 
 /** Start a new conversation with its first message. Returns the conversation id. */
-export async function startConversation(dotId: string, text: string, attachments: Attachment[] = []): Promise<string> {
-  const conv = repo.createConversation(dotId);
+export async function startConversation(dotId: string, text: string, attachments: Attachment[] = [], model: string | null = null): Promise<string> {
+  const conv = repo.createConversation(dotId, "New chat", "chat", null, model);
   runtime.sendMessage(dotId, text.trim(), attachments, conv.id);
   void autoTitle(conv.id, text || attachments.map((a) => a.name).join(", "));
   return conv.id;
@@ -58,6 +59,11 @@ export async function startConversation(dotId: string, text: string, attachments
 
 export async function renameConversation(convId: string, title: string) {
   if (title.trim()) repo.renameConversation(convId, title.trim().slice(0, 80));
+}
+
+export async function setConversationModel(convId: string, model: string | null) {
+  repo.setConversationModel(convId, model);
+  repo.resetThread(convId);
 }
 
 export async function deleteConversation(convId: string) {
@@ -198,6 +204,26 @@ export async function setOpenRouterKey(key: string): Promise<string | null> {
   emit({ type: "computer", data: computerInfo() });
   void models().then(() => emit({ type: "computer", data: computerInfo() })).catch(() => {});
   return null;
+}
+
+export async function setOpenCodeProduct(product: "go" | "zen", key: string, enabled: boolean, removeKey = false): Promise<string | null> {
+  const err = await saveOpenCodeProduct(product, key.trim(), enabled, removeKey);
+  if (err) return err;
+  resetModels();
+  emit({ type: "computer", data: computerInfo() });
+  void models().then(() => emit({ type: "computer", data: computerInfo() })).catch(() => {});
+  return null;
+}
+
+export async function refreshModels(): Promise<string | null> {
+  resetModels();
+  try {
+    await models();
+    emit({ type: "computer", data: computerInfo() });
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
 }
 
 // ---------- triggers (Composio API key) ----------

@@ -19,7 +19,7 @@ export type State = Snapshot & {
 
 const EMPTY: State = {
   dots: [], messages: [], routines: [], triggers: [], rules: [], memories: [], skills: [], passwords: [],
-  computer: { mode: "local", docker: false, image: "", model: "", models: [], computerTool: "", hasKey: true, keySource: null, cloudKey: null, openRouter: null, triggersKey: null, sky: false, composio: false },
+  computer: { mode: "local", docker: false, image: "", model: "", models: [], computerTool: "", hasKey: true, keySource: null, cloudKey: null, openRouter: null, openCode: { go: { source: null, enabled: false }, zen: { source: null, enabled: false } }, triggersKey: null, sky: false, composio: false },
   apps: [],
   channels: [],
   conversations: [],

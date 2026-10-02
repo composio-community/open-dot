@@ -3,6 +3,11 @@ import OpenAI from "openai";
 import { getSetting, setSetting } from "../db";
 import { seal, unseal } from "../vault";
 import { isOpenRouterModel, openModels, openRouterId, openRouterKey, openrouter, preferredOpenModel, smallOpenModel } from "./openrouter";
+import { isOpenCodeModel, openCodeClient, openCodeEnabled, openCodeModelId, openCodeModels, preferredOpenCodeModel, smallOpenCodeModel } from "./opencode";
+
+
+export type ModelProvider = "openai" | "opencode" | "openrouter";
+export type ModelClient = { client: OpenAI; model: string; stateless: boolean; provider: ModelProvider };
 
 // Models are chosen from what the API key can actually use. Precedence for a dot's model:
 // the dot's own choice → the default picked in Settings → DOTS_MODEL → best available.
@@ -94,19 +99,30 @@ async function resolveOpenAI(): Promise<{ main: string; review: string; availabl
   };
 }
 
-/** OpenAI models (with an OpenAI key) first, then open models (with an OpenRouter key). */
+async function resolveOpenCode(): Promise<{ main: string; review: string; available: string[] } | null> {
+  if (!openCodeEnabled()) return null;
+  const available = await openCodeModels();
+  if (!available.length) return null;
+  return { main: preferredOpenCodeModel(available) ?? available[0], review: smallOpenCodeModel(available) ?? available[0], available };
+}
+
+/** OpenAI first, then OpenCode, then OpenRouter. */
 async function resolve() {
-  const [oa, open] = await Promise.all([
+  const [oa, opencode, open] = await Promise.all([
     resolveOpenAI(),
+    resolveOpenCode().catch((err) => {
+      console.warn("[dots] couldn't list OpenCode models:", err instanceof Error ? err.message : err);
+      return null;
+    }),
     openModels().catch((err) => {
       console.warn("[dots] couldn't list OpenRouter models:", err instanceof Error ? err.message : err);
       return [] as string[];
     }),
   ]);
   const resolved = {
-    main: oa?.main ?? (open.length ? preferredOpenModel(open) : process.env.DOTS_MODEL || MAIN_PREFERENCE[0]),
-    review: oa?.review ?? (open.length ? smallOpenModel(open) : process.env.DOTS_REVIEW_MODEL || REVIEW_PREFERENCE[0]),
-    available: [...(oa?.available ?? []), ...open],
+    main: oa?.main ?? opencode?.main ?? (open.length ? preferredOpenModel(open) : process.env.DOTS_MODEL || MAIN_PREFERENCE[0]),
+    review: oa?.review ?? opencode?.review ?? (open.length ? smallOpenModel(open) : process.env.DOTS_REVIEW_MODEL || REVIEW_PREFERENCE[0]),
+    available: [...(oa?.available ?? []), ...(opencode?.available ?? []), ...open],
   };
   g.__dotsResolved = resolved;
   console.log(`[dots] default ${resolved.main} (agent), ${resolved.review} (rule review); ${resolved.available.length} models available`);
@@ -120,13 +136,15 @@ export function resetModels() {
 }
 
 /** The API client for a model, the model id that API expects, and whether it keeps conversation state. */
-export function clientFor(model: string): { client: OpenAI; model: string; stateless: boolean } {
-  return isOpenRouterModel(model) ? { client: openrouter(), model: openRouterId(model), stateless: true } : { client: openai(), model, stateless: false };
+export function clientFor(model: string): ModelClient {
+  if (isOpenRouterModel(model)) return { client: openrouter(), model: openRouterId(model), stateless: true, provider: "openrouter" };
+  if (isOpenCodeModel(model)) return { client: openCodeClient(model), model: openCodeModelId(model), stateless: true, provider: "opencode" };
+  return { client: openai(), model, stateless: false, provider: "openai" };
 }
 
 /** True when any model provider is set up (OpenAI or OpenRouter). */
 export function canThink(): boolean {
-  return hasKey() || Boolean(openRouterKey());
+  return hasKey() || openCodeEnabled() || Boolean(openRouterKey());
 }
 
 export function models(): Promise<{ main: string; review: string; available: string[] }> {
@@ -151,7 +169,7 @@ export function knownModels(): { main: string; review: string; available: string
 
 /** gpt-5.x / gpt-6 / o-series accept `reasoning`; gpt-4.1 and friends reject it. */
 export function isReasoningModel(model: string): boolean {
-  return !isOpenRouterModel(model) && /^(gpt-[5-9]|o[1-9])/.test(model) && !/chat/.test(model);
+  return !isOpenRouterModel(model) && !isOpenCodeModel(model) && /^(gpt-[5-9]|o[1-9])/.test(model) && !/chat/.test(model);
 }
 
 /** OpenAI's GA computer tool needs a recent model; older ones get the page-reading tools only. */

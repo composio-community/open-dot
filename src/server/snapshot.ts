@@ -7,12 +7,14 @@ import { COMPUTER_ENABLED } from "./agent/tools";
 import { skyInstalled } from "./computer/sky";
 import { cloudKeySource } from "./computer/cloud";
 import { openRouterSource } from "./agent/openrouter";
+import { openCodeProducts, openCodeSource } from "./agent/opencode";
 import { triggersKeySource } from "./triggers";
 import { apps, signedIn } from "./composio";
 import type { ComputerInfo, Snapshot } from "@/lib/types";
 
 export function computerInfo(): ComputerInfo {
   const m = knownModels();
+  const products = openCodeProducts();
   return {
     mode: defaultMode(),
     docker: dockerAvailable(),
@@ -24,6 +26,7 @@ export function computerInfo(): ComputerInfo {
     keySource: keySource(),
     cloudKey: cloudKeySource(),
     openRouter: openRouterSource(),
+    openCode: { go: { source: openCodeSource("go"), enabled: products.go }, zen: { source: openCodeSource("zen"), enabled: products.zen } },
     triggersKey: triggersKeySource(),
     sky: skyInstalled(),
     composio: signedIn(),

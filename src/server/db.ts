@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS files (
 );
 CREATE TABLE IF NOT EXISTS channels (id TEXT PRIMARY KEY, name TEXT NOT NULL, lead_id TEXT NOT NULL, members TEXT NOT NULL, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS conversations (
-  id TEXT PRIMARY KEY, dot_id TEXT NOT NULL, title TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'chat', ref TEXT,
+  id TEXT PRIMARY KEY, dot_id TEXT NOT NULL, title TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'chat', ref TEXT, model TEXT,
   thread TEXT, pending TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS conversations_dot ON conversations(dot_id, updated_at);
@@ -63,8 +63,9 @@ function migrate(conn: DatabaseSync) {
   if (!cols.includes("model")) conn.exec("ALTER TABLE dots ADD COLUMN model TEXT");
   if (!cols.includes("box_id")) conn.exec("ALTER TABLE dots ADD COLUMN box_id TEXT");
   const convCols = conn.prepare("PRAGMA table_info(conversations)").all().map((c) => (c as { name: string }).name);
-  // Model-facing history for providers that don't keep conversation state (OpenRouter).
+  // Model-facing history for providers that don't keep conversation state (OpenRouter/OpenCode).
   if (convCols.length && !convCols.includes("history")) conn.exec("ALTER TABLE conversations ADD COLUMN history TEXT");
+  if (convCols.length && !convCols.includes("model")) conn.exec("ALTER TABLE conversations ADD COLUMN model TEXT");
   const msgCols = conn.prepare("PRAGMA table_info(messages)").all().map((c) => (c as { name: string }).name);
   if (!msgCols.includes("attachments")) conn.exec("ALTER TABLE messages ADD COLUMN attachments TEXT");
   if (!msgCols.includes("channel_id")) conn.exec("ALTER TABLE messages ADD COLUMN channel_id TEXT");

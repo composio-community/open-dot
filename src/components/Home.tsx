@@ -10,13 +10,16 @@ import { DEFAULT_LOOK } from "@/lib/look";
 import { statusDot, statusLabel, timeAgo } from "@/lib/status";
 import Dot3DLazy from "./Dot3DLazy";
 import DotOrb from "./DotOrb";
+import ModelPicker from "./ModelPicker";
 
 export default function Home() {
   const router = useRouter();
   const dots = useStore((s) => s.dots);
   const loaded = useStore((s) => s.loaded);
+  const defaultModel = useStore((s) => s.computer.model);
   const messages = useStore((s) => s.messages);
   const [picked, setPicked] = useState<string | null>(null);
+  const [model, setModel] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [pending, start] = useTransition();
 
@@ -51,7 +54,7 @@ export default function Home() {
     const value = text.trim();
     if (!value || !target) return;
     start(async () => {
-      const convId = await startConversation(target.id, value);
+      const convId = await startConversation(target.id, value, [], model ?? defaultModel ?? null);
       markRead(target.id);
       router.push(`/dots/${target.id}?c=${convId}`);
     });
@@ -92,7 +95,7 @@ export default function Home() {
                     <button
                       key={d.id}
                       type="button"
-                      onClick={() => setPicked(d.id)}
+                      onClick={() => { setPicked(d.id); setModel(null); }}
                       className={`flex h-7 items-center gap-1.5 rounded-md border pr-2.5 pl-1 text-[13px] transition-colors ${d.id === target?.id ? "border-foreground bg-foreground text-card" : "border-black/10 text-foreground/60 hover:border-black/20 hover:text-foreground"}`}
                     >
                       <DotOrb look={d.look} status={d.status} size={18} />
@@ -100,6 +103,7 @@ export default function Home() {
                     </button>
                   ))}
                 </div>
+                <ModelPicker compact value={model} onChange={setModel} />
                 <button
                   className="flex size-10 shrink-0 items-center justify-center rounded-full bg-foreground text-card transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-25"
                   disabled={pending || !text.trim()}

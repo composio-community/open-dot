@@ -5,10 +5,15 @@ import { Check, ChevronDown, Cpu } from "lucide-react";
 import { useStore } from "@/lib/store";
 
 const OPEN = "openrouter:";
-const label = (id: string) => (id.startsWith(OPEN) ? id.slice(OPEN.length) : id);
+const OPENCODE_GO = "opencode-go:";
+const OPENCODE_ZEN = "opencode-zen:";
+const label = (id: string) => id.startsWith(OPEN) ? id.slice(OPEN.length) : id.startsWith(OPENCODE_GO) ? id.slice(OPENCODE_GO.length) : id.startsWith(OPENCODE_ZEN) ? id.slice(OPENCODE_ZEN.length) : id;
+const providerLabel = (id: string) => id.startsWith(OPEN) ? "OpenRouter" : id.startsWith(OPENCODE_GO) ? "OpenCode Go" : id.startsWith(OPENCODE_ZEN) ? "OpenCode Zen" : "OpenAI";
 
 function hint(id: string): string | null {
   if (id.startsWith(OPEN)) return "Open model · OpenRouter";
+  if (id.startsWith(OPENCODE_GO)) return "OpenCode Go subscription";
+  if (id.startsWith(OPENCODE_ZEN)) return "OpenCode Zen · pay as you go";
   if (/-pro\b/.test(id)) return "Strongest · slower";
   if (/-nano\b/.test(id)) return "Fastest · cheapest";
   if (/-mini\b/.test(id)) return "Fast · cheaper";
@@ -38,13 +43,11 @@ export default function ModelPicker({
   const list = models.length ? models : fallback ? [fallback] : [];
   const options: { id: string | null; label: string; sub: string | null; group?: string }[] = [
     ...(allowDefault ? [{ id: null, label: "Default", sub: fallback ? label(fallback) : null }] : []),
-    ...list.map((id, i) => ({
-      id,
-      label: label(id),
-      sub: hint(id),
-      // a heading above the first open model (and above OpenAI's when both are there)
-      group: id.startsWith(OPEN) && !list[i - 1]?.startsWith(OPEN) ? "Open models" : i === 0 && list.some((m) => m.startsWith(OPEN)) ? "OpenAI" : undefined,
-    })),
+    ...list.map((id, i) => {
+      const group = providerLabel(id);
+      const prev = i > 0 ? providerLabel(list[i - 1]) : null;
+      return { id, label: label(id), sub: hint(id), group: group !== prev ? group : undefined };
+    }),
   ];
 
   return (

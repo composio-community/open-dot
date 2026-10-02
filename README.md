@@ -52,6 +52,7 @@ In development everything is stored in `.data/` in the project folder.
 |---|---|---|
 | `OPENAI_API_KEY` | none | Your OpenAI key, unless you paste it in Settings |
 | `OPENROUTER_API_KEY` | none | Open models through OpenRouter, unless you paste the key in Settings |
+| `OPENCODE_API_KEY` | none | OpenCode Go/Zen fallback key; `OPENCODE_GO_API_KEY` and `OPENCODE_ZEN_API_KEY` are also supported |
 | `COMPOSIO_API_KEY` | none | A Composio project key for triggers, unless you paste it in Settings |
 | `DOTS_MODEL` | best one your key can use, e.g. `gpt-5.5` | Main model for the dots (Responses API) |
 | `DOTS_REVIEW_MODEL` | `gpt-5.4-mini` | Checks actions against your rules and names chats |
@@ -84,6 +85,7 @@ src/server/
   agent/review.ts      checks an action against your rules
   agent/prompt.ts      the system prompt, rebuilt every turn from rules, memory, skills and routines
   agent/openrouter.ts  open models through OpenRouter, which keeps no history, so the app keeps it per chat
+  agent/opencode.ts    OpenCode Go/Zen discovery plus Responses/Chat Completions adapters
   computer/            one interface over E2B cloud computers, Docker and local folders
   computer/browser.ts  each dot's Chrome profile, computer-use actions, the live view you can take over
   composio.ts          Composio sign-in and app connections
