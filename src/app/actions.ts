@@ -3,6 +3,7 @@
 import * as repo from "@/server/repo";
 import * as runtime from "@/server/agent/runtime";
 import * as computer from "@/server/computer";
+import * as files from "@/server/files";
 import { savePassword as vaultSave } from "@/server/vault";
 import { setSetting } from "@/server/db";
 import { emit } from "@/server/bus";
@@ -34,9 +35,16 @@ export async function updateDot(dotId: string, patch: Partial<Pick<Dot, "name" |
 
 export async function deleteDot(dotId: string) {
   runtime.stop(dotId);
-  await computer.destroy(dotId);
-  await triggers.removeTriggersFor(dotId);
-  repo.deleteDot(dotId);
+  try {
+    // Keep the dot and workspace available if Windows refuses attachment deletion.
+    files.deleteForDot(dotId);
+    await computer.destroy(dotId);
+    await triggers.removeTriggersFor(dotId);
+    repo.deleteDot(dotId);
+    return null;
+  } catch {
+    return "Could not finish deleting this dot. Close any app using its files and try again.";
+  }
 }
 
 export async function sendMessage(dotId: string, text: string, attachments: Attachment[] = [], conversationId?: string) {

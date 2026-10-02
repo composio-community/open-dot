@@ -1,7 +1,9 @@
 import { get } from "@/server/files";
+import { isTrustedLoopbackRequest, loopbackForbiddenResponse } from "@/server/security";
 
 // Download or preview a file. Images/PDFs render inline; `?download=1` forces a download.
 export async function GET(req: Request, ctx: RouteContext<"/api/files/[fileId]">) {
+  if (!isTrustedLoopbackRequest(req)) return loopbackForbiddenResponse();
   const { fileId } = await ctx.params;
   const f = get(fileId);
   if (!f) return new Response("Not found", { status: 404 });

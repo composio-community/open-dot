@@ -2,6 +2,27 @@
 // Used by models that don't have OpenAI's computer tool (open models on OpenRouter), on both the local
 // browser (through Playwright) and the cloud computer (evaluated in the page over CDP).
 
+/** Check the document origin and fill in one synchronous evaluation, before navigation can race the check. */
+export function loginScript(site: string, username: string, password: string): string {
+  const saved = new URL(site.includes("://") ? site : `https://${site}`);
+  if (saved.protocol !== "https:" || saved.username || saved.password) throw new Error("Saved logins require an HTTPS site without credentials in its URL.");
+  return `((origin, u, p) => {
+    if (location.protocol !== 'https:' || location.origin !== origin) return {filled: 0, error: "Login blocked: open the exact HTTPS site saved in Settings, or take over to sign in yourself."};
+    const vis = e => { const r = e.getBoundingClientRect(); const s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none' && !e.disabled && !e.readOnly; };
+    const user = [...document.querySelectorAll('input[type=email],input[autocomplete=username],input[name*=user i],input[name*=email i],input[id*=user i],input[id*=email i],input[type=text]')].find(vis);
+    const pass = [...document.querySelectorAll('input[type=password]')].find(vis);
+    let filled = 0;
+    for (const [el, value] of [[user, u], [pass, p]]) {
+      if (!el || !value) continue;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, value);
+      el.dispatchEvent(new Event('input', {bubbles: true}));
+      el.dispatchEvent(new Event('change', {bubbles: true}));
+      filled++;
+    }
+    return {filled};
+  })(${JSON.stringify(saved.origin)}, ${JSON.stringify(username)}, ${JSON.stringify(password)})`;
+}
+
 /** In-page script: click the best match for `text`. Returns { ok, label } or { ok: false, error }. */
 export function clickScript(text: string): string {
   return `((q) => {

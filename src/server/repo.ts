@@ -101,7 +101,18 @@ export function setActivity(dotId: string, label: string | null) {
 
 export function deleteDot(dotId: string) {
   const d = db();
-  for (const t of ["messages", "memories", "skills", "routines", "triggers", "rules", "conversations"]) d.prepare(`DELETE FROM ${t} WHERE dot_id = ?`).run(dotId);
+  for (const t of ["messages", "memories", "skills", "routines", "triggers", "rules", "conversations", "files"]) {
+    d.prepare(`DELETE FROM ${t} WHERE dot_id = ?`).run(dotId);
+  }
+  const channels = listChannels();
+  for (const ch of channels) {
+    if (ch.leadId === dotId) {
+      deleteChannel(ch.id);
+    } else if (ch.memberIds.includes(dotId)) {
+      const remaining = ch.memberIds.filter((m) => m !== dotId);
+      d.prepare("UPDATE channels SET members = ? WHERE id = ?").run(JSON.stringify(remaining), ch.id);
+    }
+  }
   d.prepare("DELETE FROM dots WHERE id = ?").run(dotId);
   emit({ type: "dot_deleted", id: dotId });
 }

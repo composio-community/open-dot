@@ -15,6 +15,7 @@ const eslintConfig = defineConfig([
     // Desktop build output.
     ".desktop/**",
     "dist/**",
+    ".windows-check-*/**",
   ]),
 ]);
 

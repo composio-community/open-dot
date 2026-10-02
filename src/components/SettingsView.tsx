@@ -16,6 +16,7 @@ const notificationPermission = () => ("Notification" in window ? Notification.pe
 export default function SettingsView() {
   const passwords = useStore((s) => s.passwords);
   const computer = useStore((s) => s.computer);
+  const keyProtection = computer.platform === "win32" ? "Windows DPAPI" : computer.platform === "darwin" ? "your macOS Keychain" : "a local key file";
   const permission = useSyncExternalStore(noop, notificationPermission, () => "default");
   const [, force] = useState(0);
   const [form, setForm] = useState({ site: "", username: "", password: "" });
@@ -30,7 +31,7 @@ export default function SettingsView() {
         <Section
           eyebrow="Passwords"
           title="Saved logins"
-          description="Your dots can securely use these to log into websites in their browser. Encrypted with a key in your macOS Keychain, typed directly into the page, and never shown to the model."
+          description={`Encrypted with a key protected by ${keyProtection}. Autofill asks for approval and checks the exact HTTPS site saved here. Passwords stay out of model tool arguments and results; the website receives them when filled.`}
         >
           <div className="space-y-3">
             {passwords.length > 0 ? (
@@ -67,7 +68,7 @@ export default function SettingsView() {
               </div>
               <div className="flex items-center gap-3">
                 <span className="flex items-center gap-1.5 text-caption text-foreground/45">
-                  <Lock className="size-3" strokeWidth={2} /> AES-256-GCM, key in Keychain
+                  <Lock className="size-3" strokeWidth={2} /> AES-256-GCM, key protected by {keyProtection}
                 </span>
                 {error && <span className="text-caption text-destructive">{error}</span>}
                 <button className="btn-primary ml-auto h-8 px-3 text-[13px]" disabled={pending}>
@@ -287,7 +288,7 @@ function ApiKey() {
             start(async () => {
               const err = await setOpenAIKey(key);
               setError(err);
-              if (!err) (setKey(""), setEditing(false));
+              if (!err) { setKey(""); setEditing(false); }
             });
           }}
         >
@@ -302,7 +303,7 @@ function ApiKey() {
   );
 }
 
-/** Optional E2B key: each dot gets a cloud computer that keeps working while this Mac sleeps. */
+/** Optional E2B computer; the agent and scheduler still require this PC to stay awake. */
 function CloudKey() {
   const computer = useStore((s) => s.computer);
   const [editing, setEditing] = useState(false);
@@ -314,7 +315,7 @@ function CloudKey() {
     start(async () => {
       const err = await setCloudKey(value);
       setError(err);
-      if (!err) (setKey(""), setEditing(false));
+      if (!err) { setKey(""); setEditing(false); }
     });
 
   return (
@@ -328,8 +329,8 @@ function CloudKey() {
             {computer.cloudKey === "env"
               ? "Connected from E2B_API_KEY."
               : saved
-                ? "Connected. Each dot gets its own E2B cloud computer that keeps working while your Mac sleeps."
-                : "Paste an E2B API key (from e2b.dev) to give each dot a cloud computer that keeps working while your Mac sleeps."}
+                ? "Connected. Each dot gets its own E2B cloud computer. Keep this app open and your PC awake for agents and routines to run."
+                : "Paste an E2B API key (from e2b.dev) to give each dot a cloud computer. Agents and routines still need this app open and your PC awake."}
           </div>
         </div>
         {computer.cloudKey === "settings" && !editing && (
@@ -375,7 +376,7 @@ function OpenModelsKey() {
     start(async () => {
       const err = await setOpenRouterKey(value);
       setError(err);
-      if (!err) (setKey(""), setEditing(false));
+      if (!err) { setKey(""); setEditing(false); }
     });
 
   return (

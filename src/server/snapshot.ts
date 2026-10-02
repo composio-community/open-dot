@@ -14,6 +14,7 @@ import type { ComputerInfo, Snapshot } from "@/lib/types";
 export function computerInfo(): ComputerInfo {
   const m = knownModels();
   return {
+    platform: process.platform,
     mode: defaultMode(),
     docker: dockerAvailable(),
     image: BOX_IMAGE,

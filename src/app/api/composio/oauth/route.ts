@@ -1,14 +1,17 @@
 import { emit } from "@/server/bus";
 import { finishSignIn } from "@/server/composio";
 import { computerInfo } from "@/server/snapshot";
+import { isTrustedLoopbackRequest, loopbackForbiddenResponse } from "@/server/security";
 
 // Composio For You sends the user back here after they sign in. Sign-in happens in the user's own browser
 // (a separate tab, or the default browser from the desktop app), so this page just says it worked; the app
 // itself updates live through the event stream.
 export async function GET(req: Request) {
+  if (!isTrustedLoopbackRequest(req, true)) return loopbackForbiddenResponse();
   const params = new URL(req.url).searchParams;
   const code = params.get("code");
   let error = params.get("error_description") ?? params.get("error");
+  if (!code && !error) error = "Missing sign-in code. Start sign-in again from Open Dot Settings.";
   if (code && !error) {
     try {
       await finishSignIn(code);

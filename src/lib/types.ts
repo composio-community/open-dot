@@ -145,6 +145,7 @@ export type Snapshot = {
 export type ToolkitState = { slug: string; name: string; logo?: string; connected: boolean; accountId?: string };
 
 export type ComputerInfo = {
+  platform?: string;
   mode: "cloud" | "docker" | "local"; // where dots' computers run by default
   docker: boolean;
   image: string;
