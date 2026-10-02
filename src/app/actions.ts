@@ -13,6 +13,7 @@ import * as triggers from "@/server/triggers";
 import * as composio from "@/server/composio";
 import * as voice from "@/server/voice";
 import { autoTitle } from "@/server/titles";
+import { readUserProfileState, writeUserProfile } from "@/server/user-profile";
 import type { Attachment, Dot, Look, RuleDecision, TriggerApp, TriggerType } from "@/lib/types";
 
 // All mutations go through here; the UI updates from the event stream, not from return values.
@@ -30,6 +31,18 @@ export async function createDot(input: { name: string; purpose: string; look: Lo
 
 export async function updateDot(dotId: string, patch: Partial<Pick<Dot, "name" | "purpose" | "instructions" | "look">>) {
   repo.updateDot(dotId, patch);
+}
+
+export async function setUserProfile(content: unknown, expectedVersion: unknown): Promise<{ error: string | null; version: string | null }> {
+  if (typeof content !== "string" || (expectedVersion !== null && typeof expectedVersion !== "string")) {
+    return { error: "Invalid universal profile update.", version: null };
+  }
+  const result = writeUserProfile(content, expectedVersion);
+  if (!result.error) {
+    const profile = readUserProfileState();
+    emit({ type: "user_profile", data: { content: profile.content, version: profile.version, warning: profile.warning } });
+  }
+  return result;
 }
 
 export async function deleteDot(dotId: string) {

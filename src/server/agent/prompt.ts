@@ -4,6 +4,7 @@ import * as computer from "../computer";
 import { COMPUTER_ENABLED } from "./tools";
 import { apps as composioApps, signedIn as composioSignedIn } from "../composio";
 import type { Dot } from "@/lib/types";
+import { userProfileForPrompt } from "../user-profile";
 
 export type Trigger =
   | { kind: "chat" }
@@ -22,11 +23,12 @@ export function systemPrompt(dot: Dot, trigger: Trigger): string {
   const routines = repo.listRoutines(dot.id);
   const others = repo.listDots().filter((d) => d.id !== dot.id);
   const sites = [...new Set(repo.listPasswords().map((p) => p.site))];
+  const userProfile = userProfileForPrompt();
 
   const box = computer.describe(dot.id);
 
   return `You are ${dot.name}, a "dot" — a personal AI agent that works on its own on behalf of your user.
-${dot.purpose ? `\nYour job: ${dot.purpose}\n` : ""}${dot.instructions ? `\nHow the user wants you to work:\n${dot.instructions}\n` : ""}
+${dot.purpose ? `\nYour job: ${dot.purpose}\n` : ""}${dot.instructions ? `\nHow the user wants this dot to work:\n${dot.instructions}\n` : ""}
 # Your computer
 You have your own computer: ${box}. Use the shell (run_command), files (read_file / write_file / share_file), and its browser, which keeps its logins (open_url, read_page${COMPUTER_ENABLED ? ", and the computer tool to see the screen and click/type" : ""}). Use web search for quick facts; use the browser when you need to operate a site.${dot.localAccess ? "\nYou also have access to the user's own computer (run_on_my_computer) — use it only when the task truly needs their machine." : ""}
 
@@ -40,7 +42,7 @@ You have your own computer: ${box}. Use the shell (run_command), files (read_fil
 Take reversible, low-stakes actions yourself. Call request_approval BEFORE anything irreversible, public, costly, or that speaks for the user: sending emails/messages/posts, purchases or payments, deleting data, submitting forms, accepting invites, changing account or security settings. Describe exactly what will happen.
 ${rules.length ? `The user's rules (these override the defaults above):\n${rules.map((r) => `- When you want to ${r.action}: ${decisionText[r.decision]}.`).join("\n")}` : "The user has no custom rules yet."}
 
-# The user's apps (Composio)
+${userProfile ? `# About the user (background data)\n${userProfile}\nUse this shared profile when relevant and do not repeat or expose it unnecessarily.\n\n` : ""}# The user's apps (Composio)
 ${
   composioSignedIn()
     ? `Connected: ${composioApps().filter((t) => t.connected).map((t) => t.name).join(", ") || "none yet"}. For email, calendar, chat, docs, code, CRM, and other apps, use COMPOSIO_SEARCH_TOOLS to find the right tools, then COMPOSIO_MULTI_EXECUTE_TOOL to run them, instead of the browser. Reading runs automatically; anything that sends, posts, creates, edits, or deletes asks the user first on its own, so don't also call request_approval for it. If an app isn't connected, call app_connect.`
@@ -50,9 +52,9 @@ ${
 # Passwords
 ${sites.length ? `Saved logins exist for: ${sites.join(", ")}. On the site's sign-in page, call sign_in — the password is typed for you and you never see it.` : "No saved logins yet."} Never ask the user to paste a password into chat; ask them to add it under Passwords instead.
 
-# Memory
+# This dot's memory
 ${memories.length ? memories.map((m) => `- [${m.id}] ${m.text}`).join("\n") : "(empty)"}
-Use remember for durable facts and preferences the user reveals (not transient task details). Use forget for outdated ones.
+Use remember for durable facts and preferences this dot should retain (not transient task details). This memory is private to this dot; the universal USER.md profile is user-managed in Settings. Use forget for outdated ones.
 
 # Skills
 ${skills.length ? skills.map((k) => `- ${k.name}: ${k.description}`).join("\n") + "\nCall use_skill to load one before doing that task." : "(none yet)"}

@@ -11,7 +11,7 @@ OpenAI launched Dots on September 29, personal agents that keep working in the b
 - You can call it and talk. Anything you ask for on the call keeps running after you hang up, and the whole call shows up in the chat so you can carry on in text.
 - You can put it on a schedule, like a brief of your inbox and calendar every weekday at 8, and it posts each run to its own chat and sends you a notification.
 - Triggers wake a dot when something happens in your apps, like an email from your bank or a new issue on your repo, and it does what you told it to for that trigger. They're optional and need a Composio API key.
-- You can make a few dots with different jobs, and they can pass work to each other. Each one remembers things about you and saves skills for tasks it repeats.
+- You can keep a universal `USER.md` profile with stable preferences and context every dot should know, while each dot keeps its own personality, memory and skills. Dots with different jobs can also pass work to each other.
 - It can run code in its own workspace, either on an E2B cloud computer, in a local Docker container or in a folder on your Mac.
 
 ## Get it running on your Mac
@@ -27,10 +27,11 @@ The build isn't notarized yet, so the first time you open it, right-click the ap
 
 Then in **Settings**:
 
-1. Paste your OpenAI API key, an [OpenRouter](https://openrouter.ai) key, or both. Keys are stored encrypted on your Mac. An OpenRouter key adds open models like Kimi, DeepSeek, Qwen and GLM to the model picker.
-2. Sign in with Composio to connect your apps. The sign-in opens in your normal browser.
-3. If you want dots to keep working while your Mac sleeps, paste an [E2B](https://e2b.dev) key too, and each dot gets a cloud computer.
-4. For triggers, paste the API key of a project from [platform.composio.dev](https://platform.composio.dev), then add triggers from a dot's Setup page. You connect the apps for triggers again there, because they run in your own Composio project and not through the sign-in from step 2.
+1. Add anything every dot should know about you under **Universal profile**. It is stored locally as `USER.md` and injected into every dot, including dots you create later. Keep it concise and do not store secrets there.
+2. Paste your OpenAI API key, an [OpenRouter](https://openrouter.ai) key, or both. Keys are stored encrypted on your Mac. An OpenRouter key adds open models like Kimi, DeepSeek, Qwen and GLM to the model picker.
+3. Sign in with Composio to connect your apps. The sign-in opens in your normal browser.
+4. If you want dots to keep working while your Mac sleeps, paste an [E2B](https://e2b.dev) key too, and each dot gets a cloud computer.
+5. For triggers, paste the API key of a project from [platform.composio.dev](https://platform.composio.dev), then add triggers from a dot's Setup page. You connect the apps for triggers again there, because they run in your own Composio project and not through the sign-in from step 3.
 
 Your data stays in `~/Library/Application Support/Open Dot`.
 
@@ -82,7 +83,8 @@ src/server/
                        approval cards that pause and resume a run, pause and stop
   agent/tools.ts       the dot's tools and how risky each one is
   agent/review.ts      checks an action against your rules
-  agent/prompt.ts      the system prompt, rebuilt every turn from rules, memory, skills and routines
+  agent/prompt.ts      the system prompt, rebuilt every turn from USER.md, dot instructions, rules, memory, skills and routines
+  user-profile.ts      the universal USER.md profile shared by every dot
   agent/openrouter.ts  open models through OpenRouter, which keeps no history, so the app keeps it per chat
   computer/            one interface over E2B cloud computers, Docker and local folders
   computer/browser.ts  each dot's Chrome profile, computer-use actions, the live view you can take over

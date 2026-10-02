@@ -127,6 +127,9 @@ export type Routine = {
 export type PasswordEntry = { id: string; site: string; username: string; createdAt: number }; // secret never leaves the server
 
 export type Snapshot = {
+  userProfile: string;
+  userProfileVersion: string | null;
+  userProfileWarning: string | null;
   dots: Dot[];
   messages: Message[];
   routines: Routine[];
@@ -162,6 +165,7 @@ export type ComputerInfo = {
 
 export type ServerEvent =
   | { type: "snapshot"; data: Snapshot }
+  | { type: "user_profile"; data: { content: string; version: string | null; warning: string | null } }
   | { type: "dot"; data: Dot }
   | { type: "dot_deleted"; id: string }
   | { type: "message"; data: Message }
