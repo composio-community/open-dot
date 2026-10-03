@@ -145,6 +145,7 @@ export type Snapshot = {
 export type ToolkitState = { slug: string; name: string; logo?: string; connected: boolean; accountId?: string };
 
 export type ComputerInfo = {
+  platform?: string;
   mode: "cloud" | "docker" | "local"; // where dots' computers run by default
   docker: boolean;
   image: string;
@@ -155,6 +156,7 @@ export type ComputerInfo = {
   keySource: "env" | "settings" | null;
   cloudKey: "env" | "settings" | null; // E2B key for cloud computers
   openRouter: "env" | "settings" | null; // OpenRouter key for open models
+  routers?: import("./model-providers").RouterStatus[]; // Public metadata; never keys.
   triggersKey: "env" | "settings" | null; // Composio API key for triggers
   sky: boolean; // OpenAI's Sky computer-use runtime is installed on this Mac
   composio: boolean; // COMPOSIO_API_KEY is set

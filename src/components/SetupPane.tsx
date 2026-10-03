@@ -36,6 +36,7 @@ export default function SetupPane({ dot }: { dot: Dot }) {
   const [routineError, setRoutineError] = useState<string | null>(null);
   const [skillOpen, setSkillOpen] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
   const dirty = name !== dot.name || purpose !== dot.purpose || instructions !== dot.instructions || JSON.stringify(look) !== JSON.stringify(dot.look);
@@ -209,7 +210,11 @@ export default function SetupPane({ dot }: { dot: Dot }) {
         <Section eyebrow="Danger zone" title={`Delete ${dot.name}`} description="Removes its chat, memory, routines, triggers, and computer. This can't be undone.">
           {confirmDelete ? (
             <div className="flex items-center gap-2">
-              <button className="btn bg-destructive text-card hover:opacity-90" onClick={() => start(async () => (await actions.deleteDot(dot.id), router.push("/")))}>
+              <button className="btn bg-destructive text-card hover:opacity-90" disabled={pending} onClick={() => start(async () => {
+                const error = await actions.deleteDot(dot.id);
+                setDeleteError(error);
+                if (!error) router.push("/");
+              })}>
                 Yes, delete {dot.name}
               </button>
               <button className="btn-quiet" onClick={() => setConfirmDelete(false)}>
@@ -221,6 +226,7 @@ export default function SetupPane({ dot }: { dot: Dot }) {
               Delete {dot.name}…
             </button>
           )}
+          {deleteError && <p className="mt-3 text-caption text-destructive" role="alert">{deleteError}</p>}
         </Section>
       </div>
     </div>

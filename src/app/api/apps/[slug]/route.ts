@@ -1,3 +1,5 @@
+import { isTrustedLoopbackRequest, loopbackForbiddenResponse } from "@/server/security";
+
 // Details for one app (tools, triggers, suggested prompts), parsed from Composio's public toolkit page.
 
 type AppDetail = {
@@ -32,7 +34,8 @@ function parse(slug: string, md: string): AppDetail {
   };
 }
 
-export async function GET(_req: Request, ctx: RouteContext<"/api/apps/[slug]">) {
+export async function GET(req: Request, ctx: RouteContext<"/api/apps/[slug]">) {
+  if (!isTrustedLoopbackRequest(req)) return loopbackForbiddenResponse();
   const { slug } = await ctx.params;
   if (!/^[a-z0-9_-]+$/i.test(slug)) return Response.json({ error: "bad slug" }, { status: 400 });
   const hit = cache.get(slug);

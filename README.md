@@ -1,5 +1,9 @@
 # Open Dot
 
+Windows prototype: build with `npm run desktop:build:win`. The packaged app includes Chromium and needs no separate Node/pnpm installation. Closing its window keeps it running in the Windows tray; choose **Quit Open Dot** to stop it. Windows credentials use DPAPI. See the [Windows review guide](docs/windows-prototype.md) for setup, validation, a screenshot and remaining work. The Mac setup instructions below remain applicable to the Mac build.
+
+The Windows changes are proposed for maintainer review. No public Windows download is provided here. Publisher signing, live-provider acceptance and licensing clarification remain outstanding; see [release status](PUBLIC-RELEASE-STATUS.md) and [data handling](PRIVACY.md). Available third-party notices are bundled under `resources/notices`.
+
 OpenAI launched Dots on September 29, personal agents that keep working in the background on their own computers, but you need ChatGPT Pro or Business Premium to use them. Open Dot is an open source version that runs on your own Mac with your own OpenAI key, or with open models like Kimi, DeepSeek and Qwen through OpenRouter.
 
 ## What your dots can do
@@ -29,7 +33,7 @@ Then in **Settings**:
 
 1. Paste your OpenAI API key, an [OpenRouter](https://openrouter.ai) key, or both. Keys are stored encrypted on your Mac. An OpenRouter key adds open models like Kimi, DeepSeek, Qwen and GLM to the model picker.
 2. Sign in with Composio to connect your apps. The sign-in opens in your normal browser.
-3. If you want dots to keep working while your Mac sleeps, paste an [E2B](https://e2b.dev) key too, and each dot gets a cloud computer.
+3. For a cloud computer, paste an [E2B](https://e2b.dev) key too. Each dot gets a cloud computer; its agent loop and routines still need this app running and your computer awake.
 4. For triggers, paste the API key of a project from [platform.composio.dev](https://platform.composio.dev), then add triggers from a dot's Setup page. You connect the apps for triggers again there, because they run in your own Composio project and not through the sign-in from step 2.
 
 Your data stays in `~/Library/Application Support/Open Dot`.

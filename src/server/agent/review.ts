@@ -10,6 +10,7 @@ import type { Rule, RuleDecision } from "@/lib/types";
 export type Verdict = { decision: RuleDecision; rule: Rule | null };
 
 export async function review(dotId: string, action: string, fallback: RuleDecision): Promise<Verdict> {
+  if (fallback === "never") return { decision: "never", rule: null };
   const rules = repo.rulesFor(dotId);
   if (!rules.length) return { decision: fallback, rule: null };
 
@@ -18,7 +19,7 @@ export async function review(dotId: string, action: string, fallback: RuleDecisi
     const { client, model, stateless } = clientFor((await models()).review);
     const res = await client.responses.create({
       model,
-      ...(stateless ? { store: false } : {}),
+      ...(stateless ? { store: false, max_output_tokens: 512 } : {}),
       instructions:
         "You gate actions of a personal AI agent. Decide which of the user's rules (if any) apply to the pending action. " +
         "A rule applies only if the action clearly falls under it. Return the numbers of every applying rule; return an empty list if none apply.",
@@ -38,13 +39,16 @@ export async function review(dotId: string, action: string, fallback: RuleDecisi
       },
     });
     const parsed = JSON.parse(res.output_text) as { applying_rules: number[] };
+    if (!Array.isArray(parsed.applying_rules) || !parsed.applying_rules.every(n => Number.isInteger(n) && n >= 1 && n <= rules.length)) {
+      throw new Error("Invalid rule review response");
+    }
     const matched = parsed.applying_rules.map((n) => rules[n - 1]).filter(Boolean);
     if (!matched.length) return { decision: fallback, rule: null };
     const pick = (d: RuleDecision) => matched.find((r) => r.decision === d);
     const rule = pick("never") ?? pick("ask") ?? pick("allow")!;
     return { decision: rule.decision, rule };
   } catch {
-    // If the reviewer is unavailable, be conservative for anything not explicitly safe.
-    return { decision: fallback === "allow" ? "allow" : "ask", rule: null };
+    // A failed review cannot establish that the user's restrictions do not apply.
+    return { decision: rules.some(r => r.decision === "never") ? "never" : "ask", rule: null };
   }
 }

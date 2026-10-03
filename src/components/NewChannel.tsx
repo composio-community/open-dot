@@ -16,7 +16,10 @@ export default function NewChannel() {
   const [pending, start] = useTransition();
   const leadId = lead ?? members[0] ?? null;
 
-  const toggle = (id: string) => setMembers((m) => (m.includes(id) ? m.filter((x) => x !== id) : [...m, id]));
+  const toggle = (id: string) => {
+    if (lead === id) setLead(null);
+    setMembers((m) => (m.includes(id) ? m.filter((x) => x !== id) : [...m, id]));
+  };
 
   return (
     <div className="flex-1 overflow-y-auto">

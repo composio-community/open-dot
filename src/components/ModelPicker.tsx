@@ -3,12 +3,10 @@
 import { useState } from "react";
 import { Check, ChevronDown, Cpu } from "lucide-react";
 import { useStore } from "@/lib/store";
-
-const OPEN = "openrouter:";
-const label = (id: string) => (id.startsWith(OPEN) ? id.slice(OPEN.length) : id);
+import { modelLabel as label, modelProviderLabel, routerModel } from "@/lib/model-providers";
 
 function hint(id: string): string | null {
-  if (id.startsWith(OPEN)) return "Open model · OpenRouter";
+  if (routerModel(id)) return modelProviderLabel(id);
   if (/-pro\b/.test(id)) return "Strongest · slower";
   if (/-nano\b/.test(id)) return "Fastest · cheapest";
   if (/-mini\b/.test(id)) return "Fast · cheaper";
@@ -42,8 +40,7 @@ export default function ModelPicker({
       id,
       label: label(id),
       sub: hint(id),
-      // a heading above the first open model (and above OpenAI's when both are there)
-      group: id.startsWith(OPEN) && !list[i - 1]?.startsWith(OPEN) ? "Open models" : i === 0 && list.some((m) => m.startsWith(OPEN)) ? "OpenAI" : undefined,
+      group: i === 0 || modelProviderLabel(id) !== modelProviderLabel(list[i - 1]) ? modelProviderLabel(id) : undefined,
     })),
   ];
 

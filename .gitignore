@@ -49,5 +49,7 @@ next-env.d.ts
 # desktop builds
 /dist
 /.desktop
+/.windows-check-*
+/electron/icon.png
 /videos
 .gstack/

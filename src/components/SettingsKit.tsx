@@ -105,7 +105,7 @@ export function RuleEditor({ dotId, name }: { dotId: string | null; name: string
           </div>
         </div>
       </form>
-      <p className="text-caption text-foreground/45">One short, natural-language rule per action. &ldquo;Ask first&rdquo; wins if rules conflict. Built-in safety checks always apply.</p>
+      <p className="text-caption text-foreground/45">One short, natural-language rule per action. If rules conflict, &ldquo;Never allow&rdquo; wins, then &ldquo;Ask first&rdquo;. Built-in safety checks always apply.</p>
     </div>
   );
 }

@@ -7,10 +7,19 @@
     "build": "next build",
     "start": "next start --port 3100",
     "lint": "eslint",
-    "desktop:dev": "OPEN_DOT_DEV_URL=http://localhost:3100 electron electron",
+    "desktop:dev": "electron electron --dev",
     "desktop:prepare": "next build && node scripts/desktop-prepare.mjs",
     "desktop": "electron electron",
-    "desktop:build": "pnpm desktop:prepare && electron-builder --mac"
+    "desktop:build": "npm run desktop:prepare && npm exec --yes --package=pnpm@12.5.1 -- pnpm exec electron-builder",
+    "desktop:build:win": "npm run desktop:prepare && npm exec --yes --package=pnpm@12.5.1 -- pnpm exec electron-builder --win zip nsis --x64",
+    "test:windows": "node scripts/check-windows.mjs",
+    "test:desktop:win": "node scripts/check-desktop.mjs --packaged",
+    "test:security:win": "node scripts/check-origin-security.mjs --packaged",
+    "test:userflows:win": "node scripts/check-userflows.mjs --packaged",
+    "test:approvals": "node scripts/check-approvals.mjs",
+    "test:logins:win": "node scripts/check-login-security.mjs",
+    "test:routers": "node scripts/check-routers.mjs",
+    "test:installer:win": "node scripts/check-install-windows.mjs"
   },
   "dependencies": {
     "@composio/core": "0.22.0",
@@ -59,8 +68,32 @@
       {
         "from": ".desktop/server",
         "to": "server"
+      },
+      {
+        "from": ".desktop/browser",
+        "to": "browser"
+      },
+      {
+        "from": ".desktop/notices",
+        "to": "notices"
+      },
+      {
+        "from": "START-HERE.md",
+        "to": "START-HERE.md"
+      },
+      {
+        "from": "PRIVACY.md",
+        "to": "PRIVACY.md"
+      },
+      {
+        "from": "PUBLIC-RELEASE-STATUS.md",
+        "to": "PUBLIC-RELEASE-STATUS.md"
       }
     ],
+    "win": {
+      "target": [{ "target": "zip", "arch": ["x64"] }, { "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.png"
+    },
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
@@ -80,6 +113,7 @@
     },
     "files": [
       "main.mjs",
+      "icon.png",
       "package.json",
       "!**/node_modules/**"
     ],

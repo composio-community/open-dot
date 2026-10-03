@@ -3,12 +3,14 @@
 import * as repo from "@/server/repo";
 import * as runtime from "@/server/agent/runtime";
 import * as computer from "@/server/computer";
+import * as files from "@/server/files";
 import { savePassword as vaultSave } from "@/server/vault";
 import { setSetting } from "@/server/db";
 import { emit } from "@/server/bus";
 import { computerInfo } from "@/server/snapshot";
 import { models, resetModels, saveApiKey } from "@/server/agent/client";
 import { saveOpenRouterKey } from "@/server/agent/openrouter";
+import { saveRouter } from "@/server/agent/routers";
 import * as triggers from "@/server/triggers";
 import * as composio from "@/server/composio";
 import * as voice from "@/server/voice";
@@ -34,9 +36,16 @@ export async function updateDot(dotId: string, patch: Partial<Pick<Dot, "name" |
 
 export async function deleteDot(dotId: string) {
   runtime.stop(dotId);
-  await computer.destroy(dotId);
-  await triggers.removeTriggersFor(dotId);
-  repo.deleteDot(dotId);
+  try {
+    // Keep the dot and workspace available if Windows refuses attachment deletion.
+    files.deleteForDot(dotId);
+    await computer.destroy(dotId);
+    await triggers.removeTriggersFor(dotId);
+    repo.deleteDot(dotId);
+    return null;
+  } catch {
+    return "Could not finish deleting this dot. Close any app using its files and try again.";
+  }
 }
 
 export async function sendMessage(dotId: string, text: string, attachments: Attachment[] = [], conversationId?: string) {
@@ -197,6 +206,16 @@ export async function setOpenRouterKey(key: string): Promise<string | null> {
   resetModels();
   emit({ type: "computer", data: computerInfo() });
   void models().then(() => emit({ type: "computer", data: computerInfo() })).catch(() => {});
+  return null;
+}
+
+/** Only configure the explicitly selected gateway. Empty key removes that connection. */
+export async function setRouterKey(id: string, key: string, baseURL: string, modelIds: string): Promise<string | null> {
+  const err = await saveRouter(id, key, baseURL, modelIds);
+  if (err) return err;
+  resetModels();
+  await models();
+  emit({ type: "computer", data: computerInfo() });
   return null;
 }
 

@@ -4,7 +4,7 @@ import fs from "node:fs";
 import { chromium, type BrowserContext, type CDPSession, type Page } from "playwright";
 import { DATA_DIR } from "../db";
 import { emit } from "../bus";
-import { clickScript, typeScript } from "./dom-actions";
+import { clickScript, typeScript, loginScript } from "./dom-actions";
 
 // Each dot gets its own persistent Chrome profile, so logins survive restarts. It always runs headless:
 // the Computer tab streams its screen and forwards your mouse and keyboard when you take over.
@@ -280,21 +280,11 @@ export async function typeText(dotId: string, field: string, value: string, subm
  * Fill a login form on the current page with a stored credential. The secret is typed
  * straight into the page; the model only learns whether it worked.
  */
-export async function fillLogin(dotId: string, username: string, password: string): Promise<string> {
+export async function fillLogin(dotId: string, site: string, username: string, password: string): Promise<string> {
   const p = await page(dotId);
-  const userSel = 'input[type="email"], input[autocomplete="username"], input[name*="user" i], input[name*="email" i], input[id*="user" i], input[id*="email" i], input[type="text"]';
-  const passSel = 'input[type="password"]';
-  const user = p.locator(userSel).filter({ visible: true }).first();
-  const pass = p.locator(passSel).filter({ visible: true }).first();
-  let filled = 0;
-  if (await user.count()) {
-    await user.fill(username);
-    filled++;
-  }
-  if (await pass.count()) {
-    await pass.fill(password);
-    filled++;
-  }
+  const result = await p.evaluate(loginScript(site, username, password)) as { filled: number; error?: string };
+  if (result.error) return result.error;
+  const filled = result.filled;
   await screenshot(dotId);
   if (!filled) return "No visible login fields found on this page. Navigate to the sign-in form first.";
   const what = filled === 2 ? "username and password" : "the only login field visible (it may be a multi-step form; continue and call again)";
@@ -331,6 +321,8 @@ export async function stream(dotId: string, onFrame: (jpeg: Buffer) => void): Pr
     });
     await p.bringToFront().catch(() => {});
     await s.send("Page.startScreencast", { format: "jpeg", quality: 80, maxWidth: SCREEN.width, maxHeight: SCREEN.height });
+    // Static pages may not repaint after attaching; show the current screen immediately.
+    onFrame(await p.screenshot({ type: "jpeg", quality: 80 }));
     emit({ type: "browser_url", dotId, url: p.url() });
     p.once("close", () => void attach().catch(() => {}));
   };

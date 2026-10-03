@@ -3,7 +3,8 @@
 import { useState, useSyncExternalStore, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { Bell, KeyRound, Lock, LogOut, Plus, RefreshCw } from "lucide-react";
-import { connectApp, deletePassword, refreshApps, savePassword, setCloudKey, setDefaultModel, setOpenAIKey, setOpenRouterKey, signInComposio, signOutComposio } from "@/app/actions";
+import { connectApp, deletePassword, refreshApps, savePassword, setCloudKey, setDefaultModel, setOpenAIKey, setRouterKey, signInComposio, signOutComposio } from "@/app/actions";
+import { ROUTER_PROVIDERS, routerProvider, type RouterId } from "@/lib/model-providers";
 import { useStore } from "@/lib/store";
 import { openAfter } from "@/lib/popup";
 import { Empty, PageHeader, RemoveButton, RuleEditor, Section } from "./SettingsKit";
@@ -16,6 +17,7 @@ const notificationPermission = () => ("Notification" in window ? Notification.pe
 export default function SettingsView() {
   const passwords = useStore((s) => s.passwords);
   const computer = useStore((s) => s.computer);
+  const keyProtection = computer.platform === "win32" ? "Windows DPAPI" : computer.platform === "darwin" ? "your macOS Keychain" : "a local key file";
   const permission = useSyncExternalStore(noop, notificationPermission, () => "default");
   const [, force] = useState(0);
   const [form, setForm] = useState({ site: "", username: "", password: "" });
@@ -30,7 +32,7 @@ export default function SettingsView() {
         <Section
           eyebrow="Passwords"
           title="Saved logins"
-          description="Your dots can securely use these to log into websites in their browser. Encrypted with a key in your macOS Keychain, typed directly into the page, and never shown to the model."
+          description={`Encrypted with a key protected by ${keyProtection}. Autofill asks for approval and checks the exact HTTPS site saved here. Passwords stay out of model tool arguments and results; the website receives them when filled.`}
         >
           <div className="space-y-3">
             {passwords.length > 0 ? (
@@ -67,7 +69,7 @@ export default function SettingsView() {
               </div>
               <div className="flex items-center gap-3">
                 <span className="flex items-center gap-1.5 text-caption text-foreground/45">
-                  <Lock className="size-3" strokeWidth={2} /> AES-256-GCM, key in Keychain
+                  <Lock className="size-3" strokeWidth={2} /> AES-256-GCM, key protected by {keyProtection}
                 </span>
                 {error && <span className="text-caption text-destructive">{error}</span>}
                 <button className="btn-primary ml-auto h-8 px-3 text-[13px]" disabled={pending}>
@@ -121,7 +123,7 @@ export default function SettingsView() {
           </div>
         </Section>
 
-        <Section eyebrow="Engine" title="Models & computers" description="Models come from what your OpenAI key can use, plus open models once you add an OpenRouter key.">
+        <Section eyebrow="Engine" title="Models & computers" description="Connect OpenAI or a model router. Each service needs its own key; choose the service that issued yours.">
           <ApiKey />
           <OpenModelsKey />
           <CloudKey />
@@ -270,7 +272,7 @@ function ApiKey() {
               ? "Connected from OPENAI_API_KEY."
               : computer.hasKey
                 ? "Connected. Stored encrypted on this computer."
-                : "Your dots need one to think. Create one at platform.openai.com."}
+                : "For OpenAI models and voice, use a key from platform.openai.com. Router keys go under Model routers below."}
           </div>
         </div>
         {computer.hasKey && computer.keySource !== "env" && !editing && (
@@ -287,7 +289,7 @@ function ApiKey() {
             start(async () => {
               const err = await setOpenAIKey(key);
               setError(err);
-              if (!err) (setKey(""), setEditing(false));
+              if (!err) { setKey(""); setEditing(false); }
             });
           }}
         >
@@ -302,7 +304,7 @@ function ApiKey() {
   );
 }
 
-/** Optional E2B key: each dot gets a cloud computer that keeps working while this Mac sleeps. */
+/** Optional E2B computer; the agent and scheduler still require this PC to stay awake. */
 function CloudKey() {
   const computer = useStore((s) => s.computer);
   const [editing, setEditing] = useState(false);
@@ -314,7 +316,7 @@ function CloudKey() {
     start(async () => {
       const err = await setCloudKey(value);
       setError(err);
-      if (!err) (setKey(""), setEditing(false));
+      if (!err) { setKey(""); setEditing(false); }
     });
 
   return (
@@ -328,8 +330,8 @@ function CloudKey() {
             {computer.cloudKey === "env"
               ? "Connected from E2B_API_KEY."
               : saved
-                ? "Connected. Each dot gets its own E2B cloud computer that keeps working while your Mac sleeps."
-                : "Paste an E2B API key (from e2b.dev) to give each dot a cloud computer that keeps working while your Mac sleeps."}
+                ? "Connected. Each dot gets its own E2B cloud computer. Keep this app open and your PC awake for agents and routines to run."
+                : "Paste an E2B API key (from e2b.dev) to give each dot a cloud computer. Agents and routines still need this app open and your PC awake."}
           </div>
         </div>
         {computer.cloudKey === "settings" && !editing && (
@@ -362,63 +364,70 @@ function CloudKey() {
   );
 }
 
-/** Optional OpenRouter key: adds open models (Qwen, DeepSeek, Kimi, GLM, Llama, gpt-oss…) to every model picker. */
+/** Each router keeps a separate credential and model group. */
 function OpenModelsKey() {
+  const [id, setId] = useState<RouterId>("openrouter");
   const computer = useStore((s) => s.computer);
-  const openCount = computer.models.filter((m) => m.startsWith("openrouter:")).length;
-  const [editing, setEditing] = useState(false);
-  const [key, setKey] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [pending, start] = useTransition();
-  const saved = computer.openRouter !== null;
-  const save = (value: string) =>
-    start(async () => {
-      const err = await setOpenRouterKey(value);
-      setError(err);
-      if (!err) (setKey(""), setEditing(false));
-    });
-
+  const status = computer.routers?.find((r) => r.id === id);
   return (
     <div id="open-models" className="surface mb-3 scroll-mt-6 p-4">
-      <div className="flex items-center gap-3">
-        <div className="flex-1">
-          <div className="text-[14px]">
-            Open models <span className="text-foreground/40">· optional</span>
-          </div>
-          <div className="text-body-sm text-foreground/55">
-            {computer.openRouter === "env"
-              ? `Connected from OPENROUTER_API_KEY${openCount ? ` · ${openCount} open models in the model picker` : ""}.`
-              : saved
-                ? `Connected${openCount ? ` · ${openCount} open models in the model picker` : ""}. Voice calls still use OpenAI.`
-                : "Paste an OpenRouter key (from openrouter.ai) to run dots on open models like Qwen, DeepSeek, Kimi, GLM and Llama."}
-          </div>
-        </div>
-        {computer.openRouter === "settings" && !editing && (
-          <>
-            <button className="btn-quiet h-8 px-3 text-[13px]" disabled={pending} onClick={() => save("")}>
-              Remove
-            </button>
-            <button className="btn-secondary h-8 px-3 text-[13px]" onClick={() => setEditing(true)}>
-              Change
-            </button>
-          </>
-        )}
+      <div className="text-[14px]">Model routers <span className="text-foreground/40">· optional</span></div>
+      <p className="text-body-sm text-foreground/55">Choose your key&apos;s provider. Keys are never tried against other services. Voice calls still need OpenAI.</p>
+      <select aria-label="Router provider" className="field mt-3 text-[13px]" value={id} onChange={(e) => setId(e.target.value as RouterId)}>
+        {ROUTER_PROVIDERS.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </select>
+      <RouterKey key={`${id}:${status?.source}:${status?.baseURL}`} id={id} />
+    </div>
+  );
+}
+
+function RouterKey({ id }: { id: RouterId }) {
+  const provider = routerProvider(id)!;
+  const computer = useStore((s) => s.computer);
+  const status = computer.routers?.find((r) => r.id === id);
+  const source = status?.source ?? (id === "openrouter" ? computer.openRouter : null);
+  const count = computer.models.filter((m) => m.startsWith(`${id}:`)).length;
+  const [editing, setEditing] = useState(false);
+  const [key, setKey] = useState("");
+  const [baseURL, setBaseURL] = useState(status?.baseURL ?? provider.baseURL);
+  const [modelIds, setModelIds] = useState(status?.modelIds.join(", ") ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  const saved = source !== null;
+  const save = (value: string) =>
+    start(async () => {
+      const err = await setRouterKey(id, value, baseURL, modelIds);
+      setError(err);
+      if (!err) { setKey(""); setEditing(false); }
+    });
+  return (
+    <div className="mt-3">
+      <div className="flex items-center gap-2">
+        <p className="flex-1 text-body-sm text-foreground/55">
+          {source === "env" ? `Configured from ${provider.env}.` : saved ? `Saved encrypted · ${count} models loaded. Send a chat to check model access.` : `Paste the API key issued by ${provider.name}.`}
+        </p>
+        <a href={provider.docs} target="_blank" rel="noreferrer" className="text-caption underline">API docs</a>
+        {source === "settings" && !editing && <>
+          <button className="btn-quiet h-8 px-3 text-[13px]" disabled={pending} onClick={() => save("")}>Remove</button>
+          <button className="btn-secondary h-8 px-3 text-[13px]" onClick={() => setEditing(true)}>Change</button>
+        </>}
       </div>
-      {(editing || !saved) && computer.openRouter !== "env" && (
-        <form
-          className="mt-3 flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            save(key);
-          }}
-        >
-          <input className="field font-mono text-[13px]" type="password" placeholder="sk-or-..." value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />
-          <button className="btn-primary shrink-0" disabled={pending || !key.trim()}>
-            {pending ? "Checking…" : "Save"}
-          </button>
+      {(editing || !saved) && source !== "env" && (
+        <form className="mt-3 space-y-2" onSubmit={(e) => { e.preventDefault(); save(key); }}>
+          <label className="block text-caption">API base URL
+            <input aria-label="Router API base URL" className="field mt-1 font-mono text-[13px]" type="url" required value={baseURL} onChange={(e) => setBaseURL(e.target.value)} disabled={pending} />
+          </label>
+          <label className="block text-caption">Model IDs · optional, comma separated
+            <input aria-label="Router model IDs" className="field mt-1 font-mono text-[13px]" placeholder="Leave blank to load your available models" value={modelIds} onChange={(e) => setModelIds(e.target.value)} disabled={pending} />
+          </label>
+          <div className="flex gap-2">
+            <input aria-label={`${provider.name} API key`} className="field font-mono text-[13px]" type="password" placeholder="Paste this provider's API key" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" disabled={pending} />
+            <button className="btn-primary shrink-0" disabled={pending || !key.trim()}>{pending ? "Checking…" : "Save"}</button>
+          </div>
+          <p className="text-caption text-foreground/50">The key goes only to the API URL shown above. Model and tool availability depend on your provider and plan.</p>
         </form>
       )}
-      {error && <p className="mt-2 text-caption text-destructive">{error}</p>}
+      {error && <p role="alert" className="mt-2 break-words text-caption text-destructive">{error}</p>}
     </div>
   );
 }
