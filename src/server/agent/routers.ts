@@ -48,6 +48,44 @@ export const hasRouterKey = () => ROUTER_PROVIDERS.some((p) => Boolean(config(p.
 export const routerKey = (id: RouterId) => config(id)?.key ?? null;
 export const routerSource = (id: RouterId) => routerStatuses().find((p) => p.id === id)!.source;
 
+/** Keep useful provider diagnostics without forwarding credentials or raw HTML. */
+async function routerError(c: Config, res: Response): Promise<string> {
+  const mask = (value: string, max: number) => value
+    .replaceAll(c.key, "[redacted]").replaceAll(encodeURIComponent(c.key), "[redacted]")
+    .replace(/Bearer\s+[^\s"',;<>]+/gi, "Bearer [redacted]")
+    .replace(/\b(?:sk[-_]|tr_)[a-zA-Z0-9_-]+/g, "[redacted]")
+    .replace(/[\p{C}\s]+/gu, " ").trim().slice(0, max);
+  let message = res.status === 401 ? "The key was rejected by the selected endpoint." : res.status === 403 ? "The provider denied this request. Check its dashboard or contact support." : res.status === 429 ? "Rate or quota limit reached." : "Check the endpoint and provider status.";
+  let reference = "";
+  if (/application\/(?:[\w.-]+\+)?json\b/i.test(res.headers.get("content-type") ?? "")) {
+    const reader = res.body?.getReader();
+    if (reader) {
+      try {
+        let text = "", size = 0;
+        const decoder = new TextDecoder();
+        for (;;) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          size += chunk.value.byteLength;
+          if (size > 8192) throw new Error("Oversized provider error");
+          text += decoder.decode(chunk.value, { stream: true });
+        }
+        const error = JSON.parse(text + decoder.decode())?.error;
+        if (typeof error?.message === "string") message += ` Provider: ${mask(error.message, 600)}`;
+        if (typeof error?.type === "string" && /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(error.type)) message += ` Type: ${mask(error.type, 64)}.`;
+        if (typeof error?.request_id === "string") reference = mask(error.request_id, 100);
+      } catch { /* Malformed or oversized bodies retain the safe status explanation. */ }
+      finally { await reader.cancel().catch(() => {}); }
+    }
+  } else {
+    if (res.headers.get("content-type")?.includes("text/html") || res.headers.get("cf-mitigated") === "challenge") message = "The endpoint returned a website/security page instead of an API response. Check the provider status or contact its support.";
+    await res.body?.cancel().catch(() => {});
+  }
+  if (!reference) reference = mask(res.headers.get("cf-ray") ?? "", 100);
+  if (/^[a-zA-Z0-9_-]{1,100}$/.test(reference)) message += ` Support reference: ${reference}.`;
+  return `Router HTTP ${res.status}. ${message}`;
+}
+
 /** Credentials are sent only to the chosen origin, never forwarded through redirects. */
 async function routerFetch(c: Config, input: RequestInfo | URL, init?: RequestInit) {
   const target = new URL(input instanceof Request ? input.url : String(input));
@@ -58,9 +96,11 @@ async function routerFetch(c: Config, input: RequestInfo | URL, init?: RequestIn
     const addresses = await lookup(target.hostname, { all: true });
     if (!addresses.length || addresses.some((a) => privateIPs.check(a.address, a.family === 6 ? "ipv6" : "ipv4"))) throw new Error("The router endpoint must resolve to public internet addresses.");
   }
-  const res = await fetch(input, { ...init, redirect: "error" });
-  // Do not expose provider error bodies: a gateway can echo Authorization or the submitted key.
-  if (!res.ok) return Response.json({ error: { message: `Router HTTP ${res.status}. ${res.status === 401 ? "The key was rejected by the selected endpoint." : res.status === 403 ? "Access denied: check the account, key permissions and plan." : res.status === 429 ? "Rate or quota limit reached." : "Check the endpoint and provider status."}` } }, { status: res.status, headers: res.headers.has("retry-after") ? { "retry-after": res.headers.get("retry-after")! } : {} });
+  const headers = new Headers(input instanceof Request ? input.headers : undefined);
+  new Headers(init?.headers).forEach((value, name) => headers.set(name, value));
+  if (!headers.has("Accept")) headers.set("Accept", "application/json");
+  const res = await fetch(input, { ...init, headers, redirect: "error" });
+  if (!res.ok) return Response.json({ error: { message: await routerError(c, res) } }, { status: res.status, headers: res.headers.has("retry-after") ? { "retry-after": res.headers.get("retry-after")! } : {} });
   return res;
 }
 
@@ -69,7 +109,8 @@ async function listModels(c: Config, id: RouterId): Promise<string[]> {
   const res = await routerFetch(c, c.baseURL + suffix, { headers: { Authorization: `Bearer ${c.key}` }, signal: AbortSignal.timeout(15_000) });
   if (!res.ok) {
     if ((res.status === 404 || res.status === 405) && c.modelIds.length) return c.modelIds.map((m) => `${id}:${m}`);
-    throw new Error(res.status === 401 ? "The key was rejected by this endpoint (401)." : res.status === 403 ? "Access denied (403). Check your key permissions, account and plan." : res.status === 404 || res.status === 405 ? "This gateway does not list models. Enter model IDs from its dashboard, then save again." : `Could not load models (${res.status}). Check the provider's status or quota.`);
+    if (res.status === 404 || res.status === 405) throw new Error("This gateway does not list models. Enter model IDs from its dashboard, then save again.");
+    throw new Error((await res.json()).error.message);
   }
   const body: unknown = await res.json();
   if (!body || typeof body !== "object" || !("data" in body) || !Array.isArray(body.data)) throw new Error("The endpoint did not return an OpenAI-compatible model catalog.");
@@ -97,7 +138,7 @@ export async function saveRouter(id: string, key: string, baseURL: string, model
     const c: Config = { key: key.trim(), baseURL: routerBaseURL(baseURL), modelIds: ids };
     if (id === "openrouter" && c.baseURL === provider.baseURL) {
       const res = await routerFetch(c, c.baseURL + "/key", { headers: { Authorization: `Bearer ${c.key}` }, signal: AbortSignal.timeout(15_000) });
-      if (!res.ok) return `OpenRouter rejected the connection (${res.status}). Check the key, permissions and quota.`;
+      if (!res.ok) return (await res.json()).error.message;
     }
     const models = await listModels(c, provider.id);
     // Seal before touching the old configuration: errors must preserve existing credentials.

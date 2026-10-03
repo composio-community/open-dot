@@ -19,12 +19,13 @@ registerHooks({ resolve(specifier, context, next) {
 const originalFetch = globalThis.fetch;
 const { ROUTER_PROVIDERS } = await import("../src/lib/model-providers.ts");
 const requests = [];
-let failure = 0, streamMode = "normal", catalogMode = "normal";
+let failure = 0, streamMode = "normal", catalogMode = "normal", errorResponse = null;
 globalThis.fetch = async (input, init = {}) => {
   const url = new URL(input instanceof Request ? input.url : String(input));
   const body = init.body ? JSON.parse(init.body) : null;
   const headers = new Headers(init.headers);
-  requests.push({ url: url.href, body, auth: headers.get("Authorization"), redirect: init.redirect });
+  requests.push({ url: url.href, body, auth: headers.get("Authorization"), accept: headers.get("Accept"), redirect: init.redirect });
+  if (errorResponse) return errorResponse();
   if (failure) return Response.json({ error: { message: headers.get("Authorization") } }, { status: failure });
   if (url.pathname.endsWith("/key")) return Response.json({ data: { label: "synthetic" } });
   if (url.pathname.endsWith("/models")) {
@@ -96,6 +97,37 @@ try {
   const available = (await models()).available;
   for (const p of ROUTER_PROVIDERS) assert(available.includes(`${p.id}:fixture-model`));
   assert.equal(available.length, ROUTER_PROVIDERS.length);
+  // The same HTTP status can be an API permission denial or a website/security page.
+  const nara = ROUTER_PROVIDERS.find((p) => p.id === "nararouter");
+  const oldNara = getSetting("router_config_nararouter"), replacement = "sk-nry-replacement-secret";
+  errorResponse = () => Response.json({ error: { type: "forbidden", message: "Your account is suspended.", request_id: "req_fixture_403" } }, { status: 403 });
+  const denied = await routers.saveRouter(nara.id, replacement, nara.baseURL, "manual-model");
+  assert.match(denied, /403.*account is suspended.*forbidden.*req_fixture_403/);
+  assert.equal(getSetting("router_config_nararouter"), oldNara, "403 must not save or bypass authorization using manual model IDs");
+  assert.equal(requests.at(-1).accept, "application/json");
+  const naraClient = clientFor("nararouter:fixture-model").client;
+  await assert.rejects(() => naraClient.responses.create({ model: "fixture-model", input: "fixture" }), /account is suspended.*req_fixture_403/);
+  errorResponse = () => new Response("<html>" + replacement + "</html>", { status: 403, headers: { "Content-Type": "text/html", "cf-mitigated": "challenge", "cf-ray": "abc123-SIN" } });
+  const blocked = await routers.saveRouter(nara.id, replacement, nara.baseURL, "");
+  assert.match(blocked, /403.*website\/security page.*abc123-SIN/);
+  assert(!blocked.includes(replacement) && !blocked.includes("<html>") && !blocked.includes("plan"));
+  for (const message of ["Bearer " + replacement, encodeURIComponent(replacement), "The upstream key sk-or-private-credential was rejected.", "Bearer unrelated-upstream-secret", "Bad key " + replacement + "\n" + "x".repeat(1000)]) {
+    errorResponse = () => Response.json({ error: { type: replacement, message, request_id: replacement } }, { status: 403 });
+    const masked = await routers.saveRouter(nara.id, replacement, nara.baseURL, "");
+    assert(!masked.includes(replacement) && !masked.includes("sk-or-private-credential") && !masked.includes("unrelated-upstream-secret"));
+    assert(masked.length < 900 && !masked.includes("\n"));
+  }
+  // Decode escaped/encoded keys before truncation and never expose other body fields.
+  const encodedKey = "fixture-secret+/=";
+  errorResponse = () => Response.json({ error: { message: encodeURIComponent(encodedKey), request_id: encodedKey }, debug: encodedKey }, { status: 403 });
+  const encoded = await routers.saveRouter(nara.id, encodedKey, nara.baseURL, "");
+  assert(!encoded.includes(encodedKey) && !encoded.includes(encodeURIComponent(encodedKey)));
+  for (const body of ["{broken", JSON.stringify({ error: { message: "x".repeat(9000) + replacement } })]) {
+    errorResponse = () => new Response(body, { status: 403, headers: { "Content-Type": "application/json" } });
+    const fallback = await routers.saveRouter(nara.id, replacement, nara.baseURL, "");
+    assert.match(fallback, /403.*provider denied/i); assert(!fallback.includes(replacement) && fallback.length < 300);
+  }
+  errorResponse = null;
   for (const base of ["http://example.org/v1", "https://127.0.0.1/v1", "https://localhost/v1", "https://user:secret@example.org/v1", "https://example.org/v1?key=secret", "https://example.org:8443/v1", "https://example.org/v1/chat/completions"]) assert.throws(() => routers.routerBaseURL(base));
   const beforePrivate = requests.length;
   assert.match(await routers.saveRouter("agentrouter", "fixture-secret", "https://private.fixture.test/v1", ""), /public internet/);

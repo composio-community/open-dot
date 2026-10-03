@@ -427,7 +427,7 @@ function RouterKey({ id }: { id: RouterId }) {
           <p className="text-caption text-foreground/50">The key goes only to the API URL shown above. Model and tool availability depend on your provider and plan.</p>
         </form>
       )}
-      {error && <p className="mt-2 text-caption text-destructive">{error}</p>}
+      {error && <p role="alert" className="mt-2 break-words text-caption text-destructive">{error}</p>}
     </div>
   );
 }
