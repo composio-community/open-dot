@@ -12,6 +12,8 @@ The automatic OpenRouter default is [`openrouter/free`](https://openrouter.ai/op
 
 The app does not attach OpenRouter's separately billed hosted web-search tool to `openrouter/free` or `:free` models. Existing browser, page-reading and workspace function tools remain available. Free-model quotas and availability still apply; failed free requests are not retried with paid models. A temporary catalog outage on the official OpenRouter endpoint retains the free default. Account-level provider plugins and other explicitly selected paid integrations can still have their own charges. Free routing is not a guarantee about those account settings or model quality.
 
+OpenRouter discovery loads the full `/models` catalog and filters explicit tool capabilities locally. Its server-side `supported_parameters=tools` filter can omit `openrouter/free` even though the full catalog advertises it as supporting tools. The free dispatcher is retained before the picker limit. `node scripts/check-router-picker.mjs` checks the compiled server's visible Settings and dot pickers, selection and persistence with synthetic catalog replies and no model inference; build with `npm run desktop:prepare` first, or pass `--server` and `--browser` paths from the packaged app.
+
 | Selection | Default API base URL | Documentation |
 | --- | --- | --- |
 | OpenRouter | `https://openrouter.ai/api/v1` | [Authentication](https://openrouter.ai/docs/api_reference/authentication), [Responses](https://openrouter.ai/docs/api_reference/responses/overview) |

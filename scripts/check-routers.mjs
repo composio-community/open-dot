@@ -33,7 +33,11 @@ globalThis.fetch = async (input, init = {}) => {
     if (url.hostname === "api.openai.com") return Response.json({ object: "list", data: [{ id: "gpt-5.5" }, { id: "gpt-5.4-mini" }], has_more: false });
     if (catalogMode === "missing") return Response.json({}, { status: 404 });
     if (catalogMode === "html") return new Response("<html>wrong endpoint</html>");
-    if (catalogMode === "free" && url.hostname === "openrouter.ai") return Response.json({ data: [{ id: "moonshotai/kimi-k2" }, ...Array.from({ length: 220 }, (_, i) => ({ id: `paid-fixture-${i}` })), { id: "openrouter/free" }] });
+    if (catalogMode === "free" && url.hostname === "openrouter.ai") {
+      const data = [{ id: "moonshotai/kimi-k2", supported_parameters: ["tools"] }, { id: "text-only-fixture", supported_parameters: ["temperature"] }, ...Array.from({ length: 220 }, (_, i) => ({ id: `paid-fixture-${i}` })), { id: "openrouter/free", supported_parameters: ["tools", "structured_outputs"] }];
+      // Reproduce the public API: its server-side tools filter omits the free router.
+      return Response.json({ data: url.searchParams.has("supported_parameters") ? data.filter((m) => m.id !== "openrouter/free") : data });
+    }
     return Response.json({ data: [{ id: "fixture-model" }, { id: "text-embedding-fixture" }] });
   }
   // Reproduce the reported gateway reservation: an unset limit defaults to 131,072.
@@ -118,6 +122,7 @@ try {
   assert.equal(freeDefaults.main, FREE_OPENROUTER_MODEL);
   assert.equal(freeDefaults.review, FREE_OPENROUTER_MODEL);
   assert(freeDefaults.available.includes(FREE_OPENROUTER_MODEL));
+  assert(!freeDefaults.available.includes("openrouter:text-only-fixture"), "Filter explicit non-tool OpenRouter models locally");
   assert.equal(freeDefaults.available.filter((id) => id.startsWith("openrouter:")).length, 200);
   assert.equal(await modelFor(null), FREE_OPENROUTER_MODEL);
   setSetting("default_model", "openrouter:paid-choice");

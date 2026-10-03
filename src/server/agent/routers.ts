@@ -105,8 +105,8 @@ async function routerFetch(c: Config, input: RequestInfo | URL, init?: RequestIn
 }
 
 async function listModels(c: Config, id: RouterId): Promise<string[]> {
-  const suffix = id === "openrouter" ? "/models?supported_parameters=tools" : "/models";
-  const res = await routerFetch(c, c.baseURL + suffix, { headers: { Authorization: `Bearer ${c.key}` }, signal: AbortSignal.timeout(15_000) });
+  // The server-side tools filter excludes routers such as openrouter/free.
+  const res = await routerFetch(c, c.baseURL + "/models", { headers: { Authorization: `Bearer ${c.key}` }, signal: AbortSignal.timeout(15_000) });
   if (!res.ok) {
     if ((res.status === 404 || res.status === 405) && c.modelIds.length) return c.modelIds.map((m) => `${id}:${m}`);
     if (res.status === 404 || res.status === 405) throw new Error("This gateway does not list models. Enter model IDs from its dashboard, then save again.");
@@ -114,7 +114,11 @@ async function listModels(c: Config, id: RouterId): Promise<string[]> {
   }
   const body: unknown = await res.json();
   if (!body || typeof body !== "object" || !("data" in body) || !Array.isArray(body.data)) throw new Error("The endpoint did not return an OpenAI-compatible model catalog.");
-  const ids = body.data.flatMap((m: unknown) => m && typeof m === "object" && "id" in m && typeof m.id === "string" && m.id.trim() && !m.id.includes(c.key) && !/embedding|tts|transcrib|whisper|realtime|dall-e|moderation|image-generation/i.test(m.id) ? [m.id] : []);
+  const ids = body.data.flatMap((m: unknown) => {
+    if (!m || typeof m !== "object" || !("id" in m) || typeof m.id !== "string" || !m.id.trim() || m.id.includes(c.key) || /embedding|tts|transcrib|whisper|realtime|dall-e|moderation|image-generation/i.test(m.id)) return [];
+    if (id === "openrouter" && "supported_parameters" in m && (!Array.isArray(m.supported_parameters) || !m.supported_parameters.includes("tools"))) return [];
+    return [m.id];
+  });
   const selected = c.modelIds.length ? c.modelIds : ids;
   if (!selected.length) throw new Error("No chat models are available on this key. Enter a model ID from your provider dashboard.");
   const free = modelLabel(FREE_OPENROUTER_MODEL);
