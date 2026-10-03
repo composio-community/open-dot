@@ -6,7 +6,11 @@ Open Dot stores each router's key separately in its existing encrypted Windows c
 2. Open Settings, then Model routers. Select your provider.
 3. Confirm the API base URL, paste that provider's key and click Save.
 4. The app loads the provider's models without generating a paid completion. If the gateway does not expose `/models`, enter exact model IDs from its dashboard in the optional field and save again.
-5. Select a model under that provider's heading in the dot's model picker, then send a small test message.
+5. With OpenRouter configured and no saved model override, leave the dot's model picker on Default to use `openrouter/free`, or select a specific model under its provider heading. Send a small test message.
+
+The automatic OpenRouter default is [`openrouter/free`](https://openrouter.ai/openrouter/free), which selects a free model supporting the request's required tools, images or structured output. Chat titles and rule reviews use the same free dispatcher, including when an OpenAI key is also saved. Explicit dot models, the model selected in Settings, and development `DOTS_MODEL`/`DOTS_REVIEW_MODEL` overrides are preserved. If you previously selected a paid model, choose `openrouter/free` under Settings > Default model, then set the dot's model to Default or `openrouter/free`. Manual model-ID lists are respected; include `openrouter/free` to make the free default available.
+
+The app does not attach OpenRouter's separately billed hosted web-search tool to `openrouter/free` or `:free` models. Existing browser, page-reading and workspace function tools remain available. Free-model quotas and availability still apply; failed free requests are not retried with paid models. A temporary catalog outage on the official OpenRouter endpoint retains the free default. Account-level provider plugins and other explicitly selected paid integrations can still have their own charges. Free routing is not a guarantee about those account settings or model quality.
 
 | Selection | Default API base URL | Documentation |
 | --- | --- | --- |

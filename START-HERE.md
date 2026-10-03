@@ -10,7 +10,7 @@ After building, the ZIP and installer are in `dist`. The complete unpacked appli
 
 1. Extract **Open Dot-0.1.0-win.zip** completely into a folder.
 2. Open **Open Dot.exe** in that extracted folder. Keep its `resources`, `locales`, DLLs and other files together.
-3. Create a dot. In Settings add an OpenAI key, or choose your provider under **Model routers** and save its key. OpenRouter, TokenRouter, AgentRouter and NaraRouter have separate connections. Do not put keys into chat.
+3. Create a dot. In Settings add an OpenAI key, or choose your provider under **Model routers** and save its key. OpenRouter defaults to `openrouter/free` for chat, titles and rule review. Previous explicit model selections are retained: if you chose a paid model, select `openrouter/free` under Settings > Default model, then set the dot's model to Default or `openrouter/free`. OpenRouter, TokenRouter, AgentRouter and NaraRouter have separate connections. Do not put keys into chat.
 
 Alternatively, run **Open Dot Setup 0.1.0.exe** to install the application for your Windows user. Both application formats are unsigned. The installer and installed executable were tested on Windows 11 x64; other Windows configurations have not been independently tested.
 

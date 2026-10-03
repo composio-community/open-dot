@@ -4,7 +4,7 @@ import { getSetting, setSetting } from "../db";
 import { seal, unseal } from "../vault";
 import { openModels, preferredOpenModel, smallOpenModel } from "./openrouter";
 import { hasRouterKey, routerClient } from "./routers";
-import { routerModel } from "@/lib/model-providers";
+import { FREE_OPENROUTER_MODEL, routerModel } from "@/lib/model-providers";
 
 // Models are chosen from what the API key can actually use. Precedence for a dot's model:
 // the dot's own choice → the default picked in Settings → DOTS_MODEL → best available.
@@ -97,7 +97,7 @@ async function resolveOpenAI(): Promise<{ main: string; review: string; availabl
   };
 }
 
-/** OpenAI models first, then the models each configured router makes available. */
+/** Prefer OpenRouter's free dispatcher; explicit dot/Settings/environment choices still win. */
 async function resolve() {
   const [oa, open] = await Promise.all([
     resolveOpenAI(),
@@ -106,9 +106,10 @@ async function resolve() {
       return [] as string[];
     }),
   ]);
+  const free = open.includes(FREE_OPENROUTER_MODEL) ? FREE_OPENROUTER_MODEL : undefined;
   const resolved = {
-    main: oa?.main ?? (open.length ? preferredOpenModel(open) : process.env.DOTS_MODEL || MAIN_PREFERENCE[0]),
-    review: oa?.review ?? (open.length ? smallOpenModel(open) : process.env.DOTS_REVIEW_MODEL || REVIEW_PREFERENCE[0]),
+    main: process.env.DOTS_MODEL || free || oa?.main || (open.length ? preferredOpenModel(open) : MAIN_PREFERENCE[0]),
+    review: process.env.DOTS_REVIEW_MODEL || free || oa?.review || (open.length ? smallOpenModel(open) : REVIEW_PREFERENCE[0]),
     available: [...(oa?.available ?? []), ...open],
   };
   g.__dotsResolved = resolved;

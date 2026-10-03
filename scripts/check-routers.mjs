@@ -10,14 +10,15 @@ const root = path.resolve(import.meta.dirname, "..");
 if (process.platform !== "win32") throw new Error("Run this router/vault acceptance check on Windows.");
 const temp = fs.mkdtempSync(path.join(root, ".windows-check-routers-"));
 process.env.DOTS_DATA_DIR = temp;
-for (const name of ["OPENAI_API_KEY", "OPENROUTER_API_KEY", "TOKENROUTER_API_KEY", "TOKENROUTER_IO_API_KEY", "TOKENROUTER_ME_API_KEY", "AGENTROUTER_API_KEY", "NARAROUTER_API_KEY"]) delete process.env[name];
+for (const name of ["OPENAI_API_KEY", "OPENROUTER_API_KEY", "TOKENROUTER_API_KEY", "TOKENROUTER_IO_API_KEY", "TOKENROUTER_ME_API_KEY", "AGENTROUTER_API_KEY", "NARAROUTER_API_KEY", "DOTS_MODEL", "DOTS_REVIEW_MODEL"]) delete process.env[name];
 await import("./windows-test-loader.mjs");
 registerHooks({ resolve(specifier, context, next) {
   if (context.parentURL?.endsWith("/src/server/agent/routers.ts") && specifier === "node:dns/promises") return { url: "data:text/javascript," + encodeURIComponent("export async function lookup(host){return [{address:host==='private.fixture.test'?'127.0.0.1':'203.0.113.10',family:4}]};"), shortCircuit: true };
   return next(specifier, context);
 } });
 const originalFetch = globalThis.fetch;
-const { ROUTER_PROVIDERS } = await import("../src/lib/model-providers.ts");
+const { FREE_OPENROUTER_MODEL, ROUTER_PROVIDERS } = await import("../src/lib/model-providers.ts");
+for (const p of ROUTER_PROVIDERS) delete process.env[`${p.env.replace(/_API_KEY$/, "")}_BASE_URL`];
 const requests = [];
 let failure = 0, streamMode = "normal", catalogMode = "normal", errorResponse = null;
 globalThis.fetch = async (input, init = {}) => {
@@ -29,8 +30,10 @@ globalThis.fetch = async (input, init = {}) => {
   if (failure) return Response.json({ error: { message: headers.get("Authorization") } }, { status: failure });
   if (url.pathname.endsWith("/key")) return Response.json({ data: { label: "synthetic" } });
   if (url.pathname.endsWith("/models")) {
+    if (url.hostname === "api.openai.com") return Response.json({ object: "list", data: [{ id: "gpt-5.5" }, { id: "gpt-5.4-mini" }], has_more: false });
     if (catalogMode === "missing") return Response.json({}, { status: 404 });
     if (catalogMode === "html") return new Response("<html>wrong endpoint</html>");
+    if (catalogMode === "free" && url.hostname === "openrouter.ai") return Response.json({ data: [{ id: "moonshotai/kimi-k2" }, ...Array.from({ length: 220 }, (_, i) => ({ id: `paid-fixture-${i}` })), { id: "openrouter/free" }] });
     return Response.json({ data: [{ id: "fixture-model" }, { id: "text-embedding-fixture" }] });
   }
   // Reproduce the reported gateway reservation: an unset limit defaults to 131,072.
@@ -48,7 +51,7 @@ globalThis.fetch = async (input, init = {}) => {
   return new Response(wire, { headers: { "Content-Type": "text/event-stream" } });
 };
 const routers = await import("../src/server/agent/routers.ts");
-const { clientFor, canThink, models, resetModels, saveApiKey } = await import("../src/server/agent/client.ts");
+const { clientFor, canThink, modelFor, models, resetModels, saveApiKey } = await import("../src/server/agent/client.ts");
 const { chatRequest } = await import("../src/server/agent/router-chat.ts");
 const { db, getSetting, setSetting } = await import("../src/server/db.ts");
 const { seal } = await import("../src/server/vault.ts");
@@ -106,6 +109,48 @@ try {
   const available = (await models()).available;
   for (const p of ROUTER_PROVIDERS) assert(available.includes(`${p.id}:fixture-model`));
   assert.equal(available.length, ROUTER_PROVIDERS.length);
+  // The free dispatcher must survive catalog truncation and coexist with paid keys.
+  catalogMode = "free";
+  assert.equal(await routers.saveRouter("openrouter", "fixture-free-secret", "https://openrouter.ai/api/v1", ""), null);
+  process.env.OPENAI_API_KEY = "fixture-openai-secret";
+  resetModels();
+  const freeDefaults = await models();
+  assert.equal(freeDefaults.main, FREE_OPENROUTER_MODEL);
+  assert.equal(freeDefaults.review, FREE_OPENROUTER_MODEL);
+  assert(freeDefaults.available.includes(FREE_OPENROUTER_MODEL));
+  assert.equal(freeDefaults.available.filter((id) => id.startsWith("openrouter:")).length, 200);
+  assert.equal(await modelFor(null), FREE_OPENROUTER_MODEL);
+  setSetting("default_model", "openrouter:paid-choice");
+  assert.equal(await modelFor(null), "openrouter:paid-choice", "Keep an explicit Settings model");
+  assert.equal(await modelFor("tokenrouter:dot-choice"), "tokenrouter:dot-choice", "Keep an explicit dot model");
+  setSetting("default_model", null);
+  process.env.DOTS_MODEL = "gpt-5.5"; process.env.DOTS_REVIEW_MODEL = "gpt-5.4-mini";
+  resetModels();
+  assert.equal((await models()).main, "gpt-5.5"); assert.equal((await models()).review, "gpt-5.4-mini");
+  delete process.env.DOTS_MODEL; delete process.env.DOTS_REVIEW_MODEL;
+  // Changing the synthetic key invalidates the catalog cache and exercises an outage.
+  process.env.OPENROUTER_API_KEY = "fixture-outage-secret";
+  failure = 503; resetModels();
+  assert.equal((await models()).main, FREE_OPENROUTER_MODEL, "A catalog outage must not switch to a paid key");
+  failure = 0; delete process.env.OPENROUTER_API_KEY;
+  assert.equal(await routers.saveRouter("openrouter", "fixture-free-secret", "https://openrouter.ai/api/v1", "moonshotai/kimi-k2"), null);
+  resetModels();
+  assert(!(await models()).available.includes(FREE_OPENROUTER_MODEL), "Respect manual model lists");
+  assert.equal(await routers.saveRouter("openrouter", "fixture-free-secret", "https://openrouter.ai/api/v1", ""), null);
+  resetModels();
+  const openClient = clientFor(FREE_OPENROUTER_MODEL).client;
+  const functionTool = { type: "function", name: "read_page", parameters: { type: "object" } };
+  const tools = [{ type: "openrouter:web_search" }, functionTool];
+  for (const model of ["openrouter/free", "qwen/fixture:free", "moonshotai/kimi-k2"]) {
+    await openClient.responses.create({ model, input: "Synthetic tool check", tools });
+    assert.deepEqual(requests.at(-1).body.tools, model === "moonshotai/kimi-k2" ? tools : [functionTool], "Free models must retain function tools without billed hosted search, even on a shared cached client");
+  }
+  failure = 429;
+  const beforeFreeDenied = requests.length;
+  await assert.rejects(() => openClient.responses.create({ model: "openrouter/free", input: "Synthetic quota check" }), /429/);
+  assert.equal(requests.length, beforeFreeDenied + 1, "A free quota error must not retry on a paid model");
+  assert.equal(requests.at(-1).body.model, "openrouter/free");
+  failure = 0;
   const repo = await import("../src/server/repo.ts");
   const { DEFAULT_LOOK } = await import("../src/lib/look.ts");
   const { autoTitle } = await import("../src/server/titles.ts");
@@ -113,10 +158,13 @@ try {
   const dot = repo.createDot({ name: "Budget fixture", purpose: "Offline budget check", look: DEFAULT_LOOK });
   const conversation = repo.createConversation(dot.id);
   await autoTitle(conversation.id, "A short synthetic chat");
+  assert.equal(requests.at(-1).body.model, "openrouter/free", "Titles must stay free even with a paid OpenAI key saved");
   assert.equal(requests.at(-1).body.max_output_tokens, 256, "Automatic titles must not reserve the chat allowance");
   repo.addRule({ dotId: dot.id, action: "a synthetic action", decision: "ask" });
   assert.equal((await review(dot.id, "a synthetic action", "ask")).decision, "ask");
+  assert.equal(requests.at(-1).body.model, "openrouter/free", "Rule review must use the free dispatcher");
   assert.equal(requests.at(-1).body.max_output_tokens, 512, "Rule reviews must use their smaller allowance");
+  delete process.env.OPENAI_API_KEY;
   // The same HTTP status can be an API permission denial or a website/security page.
   const nara = ROUTER_PROVIDERS.find((p) => p.id === "nararouter");
   const oldNara = getSetting("router_config_nararouter"), replacement = "sk-nry-replacement-secret";
@@ -181,7 +229,7 @@ try {
   fs.renameSync(path.join(temp, "vault.key.dpapi"), path.join(temp, "vault.key.dpapi.saved"));
   const lost = spawnSync(process.execPath, ["--import", pathToFileURL(path.join(root, "scripts/windows-test-loader.mjs")).href, "--input-type=module", "-e", "const v=await import('./src/server/vault.ts');v.seal('fixture');"], { cwd: root, env: { ...process.env }, encoding: "utf8", windowsHide: true });
   assert.notEqual(lost.status, 0); assert.match(lost.stderr, /vault key is missing/); assert(!fs.existsSync(path.join(temp, "vault.key.dpapi")));
-  console.log("PASS: six router presets, isolated credential routing, real SDK chat/Responses transport, streaming and tool replay, JSON review, catalog errors, private/redirect guards, secret masking, DPAPI persistence and missing-key refusal; all requests synthetic.");
+  console.log("PASS: six router presets, free chat/title/review defaults, catalog truncation/outage, explicit model overrides, no billed hosted search or paid quota retries, isolated credential routing, real SDK transports, stream/tool replay, JSON review, catalog errors, private/redirect guards, secret masking, DPAPI persistence and missing-key refusal; all requests synthetic.");
 } finally {
   globalThis.fetch = originalFetch;
   try { db().close(); } catch {}

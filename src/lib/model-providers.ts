@@ -10,6 +10,8 @@ export const ROUTER_PROVIDERS = [
 
 export type RouterId = (typeof ROUTER_PROVIDERS)[number]["id"];
 export type RouterStatus = { id: RouterId; source: "env" | "settings" | null; baseURL: string; modelIds: string[] };
+export const FREE_OPENROUTER_MODEL = "openrouter:openrouter/free";
+export const isFreeOpenRouterModel = (id: string) => id === FREE_OPENROUTER_MODEL || (id.startsWith("openrouter:") && id.endsWith(":free"));
 export const routerProvider = (id: string) => ROUTER_PROVIDERS.find((p) => p.id === id);
 export function routerModel(id: string) {
   const colon = id.indexOf(":");

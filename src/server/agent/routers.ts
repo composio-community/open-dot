@@ -4,7 +4,7 @@ import { lookup } from "node:dns/promises";
 import { isIP, BlockList } from "node:net";
 import { getSetting, setSetting } from "../db";
 import { seal, unseal } from "../vault";
-import { ROUTER_PROVIDERS, routerModel, routerProvider, type RouterId, type RouterStatus } from "@/lib/model-providers";
+import { FREE_OPENROUTER_MODEL, isFreeOpenRouterModel, modelLabel, ROUTER_PROVIDERS, routerModel, routerProvider, type RouterId, type RouterStatus } from "@/lib/model-providers";
 import { chatResponses } from "./router-chat";
 
 type Config = { key: string; baseURL: string; modelIds: string[] };
@@ -117,7 +117,10 @@ async function listModels(c: Config, id: RouterId): Promise<string[]> {
   const ids = body.data.flatMap((m: unknown) => m && typeof m === "object" && "id" in m && typeof m.id === "string" && m.id.trim() && !m.id.includes(c.key) && !/embedding|tts|transcrib|whisper|realtime|dall-e|moderation|image-generation/i.test(m.id) ? [m.id] : []);
   const selected = c.modelIds.length ? c.modelIds : ids;
   if (!selected.length) throw new Error("No chat models are available on this key. Enter a model ID from your provider dashboard.");
-  return [...new Set(selected)].slice(0, 200).map((m) => `${id}:${m}`);
+  const free = modelLabel(FREE_OPENROUTER_MODEL);
+  // Keep the free default even when it appears after the picker catalog limit.
+  const ordered = id === "openrouter" && selected.includes(free) ? [free, ...selected] : selected;
+  return [...new Set(ordered)].slice(0, 200).map((m) => `${id}:${m}`);
 }
 
 export async function saveRouter(id: string, key: string, baseURL: string, modelIds: string): Promise<string | null> {
@@ -162,7 +165,11 @@ export async function routerModels(): Promise<string[]> {
       const models = await listModels(c, p.id);
       cache.set(p.id, { signature, at: Date.now(), models });
       return models;
-    } catch { return c.modelIds.map((m) => `${p.id}:${m}`); }
+    } catch {
+      // A catalog outage must not turn the normal free default into a paid OpenAI call.
+      if (p.id === "openrouter" && c.baseURL === p.baseURL && !c.modelIds.length) return [FREE_OPENROUTER_MODEL];
+      return c.modelIds.map((m) => `${p.id}:${m}`);
+    }
   }));
   return lists.flat();
 }
@@ -180,7 +187,13 @@ export function routerClient(appModel: string): { client: OpenAI; model: string 
     const routed = route.provider.responses ? client : chatResponses(client);
     const create = routed.responses.create.bind(routed.responses);
     // Unset limits can reserve a model's entire output window against a small balance.
-    routed.responses.create = ((params, options) => create({ ...params, max_output_tokens: params.max_output_tokens ?? 2048 }, options)) as typeof routed.responses.create;
+    routed.responses.create = ((params, options) => create({
+      ...params,
+      // Hosted search has its own charge even on free models; retain local function tools.
+      ...(route.provider.id === "openrouter" && isFreeOpenRouterModel(`openrouter:${params.model}`)
+        ? { tools: params.tools?.filter((tool) => String(tool.type) !== "openrouter:web_search") } : {}),
+      max_output_tokens: params.max_output_tokens ?? 2048,
+    }, options)) as typeof routed.responses.create;
     cached = { signature, client: routed };
     clients.set(route.provider.id, cached);
   }
