@@ -38,7 +38,7 @@ function windowsKey(): Buffer {
   if (legacy !== null && !/^[a-f0-9]{64}$/i.test(legacy)) throw new Error("Invalid existing vault key; restore it before continuing.");
   if (!fs.existsSync(protectedFile)) {
     if (!legacy) {
-      const existing = db().prepare("SELECT 1 FROM passwords UNION ALL SELECT 1 FROM settings WHERE key IN ('openai_key','openrouter_key','e2b_key','composio_api_key','composio_oauth') LIMIT 1").get();
+      const existing = db().prepare("SELECT 1 FROM passwords UNION ALL SELECT 1 FROM settings WHERE key IN ('openai_key','openrouter_key','e2b_key','composio_api_key','composio_oauth') OR key GLOB 'router_config_*' LIMIT 1").get();
       if (existing) throw new Error("The existing vault key is missing. Restore it; a replacement would lose saved credentials.");
     }
     const key = legacy ? Buffer.from(legacy, "hex") : crypto.randomBytes(32);

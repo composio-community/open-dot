@@ -18,6 +18,7 @@
     "test:userflows:win": "node scripts/check-userflows.mjs --packaged",
     "test:approvals": "node scripts/check-approvals.mjs",
     "test:logins:win": "node scripts/check-login-security.mjs",
+    "test:routers": "node scripts/check-routers.mjs",
     "test:installer:win": "node scripts/check-install-windows.mjs"
   },
   "dependencies": {

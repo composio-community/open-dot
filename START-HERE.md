@@ -10,7 +10,7 @@ After building, the ZIP and installer are in `dist`. The complete unpacked appli
 
 1. Extract **Open Dot-0.1.0-win.zip** completely into a folder.
 2. Open **Open Dot.exe** in that extracted folder. Keep its `resources`, `locales`, DLLs and other files together.
-3. Create a dot. Open Settings and add your OpenAI or OpenRouter key there to enable AI tasks. Do not put keys into chat.
+3. Create a dot. In Settings add an OpenAI key, or choose your provider under **Model routers** and save its key. OpenRouter, TokenRouter, AgentRouter and NaraRouter have separate connections. Do not put keys into chat.
 
 Alternatively, run **Open Dot Setup 0.1.0.exe** to install the application for your Windows user. Both application formats are unsigned. The installer and installed executable were tested on Windows 11 x64; other Windows configurations have not been independently tested.
 
@@ -20,7 +20,7 @@ Closing the window leaves Open Dot running in the notification-area tray. Double
 
 ## Accounts and local execution
 
-OpenAI/OpenRouter: add a key in Settings and choose the model using the existing controls. Composio apps require account connection; developer triggers may also require Composio configuration. E2B requires an E2B key and an eligible plan. These paid/account integrations were retained but were not exercised with your accounts or credits.
+OpenAI/model routers: add a key in Settings and choose a model under the matching provider heading. TokenRouter services on `.com`, `.io` and `.me` have separate presets; confirm the issuer and displayed API URL. Router credentials are sent only to that selected endpoint. If `/models` is unavailable, enter exact model IDs from your dashboard. Voice still requires a genuine OpenAI key. See `docs/model-routers.md` in the source repository. Composio apps require account connection; developer triggers may also require Composio configuration. E2B requires an E2B key and an eligible plan. Live provider access and paid requests have not been tested.
 
 Local commands use Windows PowerShell and ask for approval by default. A dot's local workspace is a folder, not an operating-system sandbox. The separate access switch controls the user-machine command tool. Docker mode requires a working Linux Docker engine; E2B uses a Linux cloud desktop. Browser takeover operates the dot's browser, rather than arbitrary Windows applications.
 
@@ -47,6 +47,7 @@ npm run test:security:win
 npm run test:userflows:win
 npm run test:approvals
 npm run test:logins:win
+npm run test:routers
 ```
 
 The build downloads the pinned Chromium revision and produces ZIP and NSIS targets in `dist`. It recreates the tray icon and bundles the standalone server/dependencies. For development, run `npm run dev`, then `npm run desktop:dev` in another terminal. `OPEN_DOT_DEV_URL` can select another loopback dev URL. Synthetic acceptance profiles are isolated; no credentials are included in this delivery.

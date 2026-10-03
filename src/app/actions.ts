@@ -10,6 +10,7 @@ import { emit } from "@/server/bus";
 import { computerInfo } from "@/server/snapshot";
 import { models, resetModels, saveApiKey } from "@/server/agent/client";
 import { saveOpenRouterKey } from "@/server/agent/openrouter";
+import { saveRouter } from "@/server/agent/routers";
 import * as triggers from "@/server/triggers";
 import * as composio from "@/server/composio";
 import * as voice from "@/server/voice";
@@ -205,6 +206,16 @@ export async function setOpenRouterKey(key: string): Promise<string | null> {
   resetModels();
   emit({ type: "computer", data: computerInfo() });
   void models().then(() => emit({ type: "computer", data: computerInfo() })).catch(() => {});
+  return null;
+}
+
+/** Only configure the explicitly selected gateway. Empty key removes that connection. */
+export async function setRouterKey(id: string, key: string, baseURL: string, modelIds: string): Promise<string | null> {
+  const err = await saveRouter(id, key, baseURL, modelIds);
+  if (err) return err;
+  resetModels();
+  await models();
+  emit({ type: "computer", data: computerInfo() });
   return null;
 }
 

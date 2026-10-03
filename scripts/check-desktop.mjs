@@ -4,6 +4,10 @@ import path from "node:path";
 import http from "node:http";
 import { execFileSync, spawnSync } from "node:child_process";
 import { _electron } from "playwright";
+import { pathToFileURL } from "node:url";
+
+await import("./windows-test-loader.mjs");
+const { ROUTER_PROVIDERS } = await import(pathToFileURL(path.join(import.meta.dirname, "../src/lib/model-providers.ts")).href);
 
 const root = path.resolve(import.meta.dirname, "..");
 const evidence = path.join(root, ".windows-check-output/evidence");
@@ -12,6 +16,7 @@ const profile = fs.mkdtempSync(path.join(root, ".windows-check-desktop-cafe-"));
 fs.mkdirSync(profile, { recursive: true });
 const packaged = process.argv.includes("--packaged");
 const env = { ...process.env, OPEN_DOT_USER_DATA_DIR: profile, DOTS_COMPUTER: "local", OPENAI_API_KEY: "", OPENROUTER_API_KEY: "", COMPOSIO_API_KEY: "", E2B_API_KEY: "" };
+for (const p of ROUTER_PROVIDERS) { env[p.env] = ""; env[`${p.env.replace(/_API_KEY$/, "")}_BASE_URL`] = ""; }
 delete env.ELECTRON_RUN_AS_NODE;
 const exeIndex = process.argv.indexOf("--exe");
 const options = packaged || exeIndex >= 0 ? { executablePath: exeIndex >= 0 ? process.argv[exeIndex + 1] : path.join(root, "dist/win-unpacked/Open Dot.exe"), args: [] } : { args: [path.join(root, "electron")] };
@@ -62,6 +67,17 @@ try {
   await page.waitForTimeout(1000);
   await page.screenshot({ path: path.join(evidence, "windows-dot.png") });
   await page.goto("http://localhost:3100/settings");
+  const routers = page.locator("#open-models");
+  for (const provider of ROUTER_PROVIDERS) {
+    await routers.getByLabel("Router provider", { exact: true }).selectOption(provider.id);
+    assert.equal(await routers.getByLabel("Router API base URL", { exact: true }).inputValue(), provider.baseURL);
+    const input = routers.getByLabel(`${provider.name} API key`, { exact: true });
+    assert.equal(await input.inputValue(), "", "Changing providers must clear an unsubmitted key");
+    await input.fill("synthetic-unsubmitted-key");
+    assert.equal(await routers.getByRole("link", { name: "API docs", exact: true }).getAttribute("href"), provider.docs);
+  }
+  await routers.getByLabel("Router provider", { exact: true }).selectOption("tokenrouter");
+  await routers.screenshot({ path: path.join(evidence, "windows-model-routers.png") });
   await page.getByPlaceholder("Site, e.g. github.com").fill("synthetic.test");
   await page.getByPlaceholder("Username or email").fill("synthetic-user");
   await page.getByPlaceholder("Password", { exact: true }).fill("synthetic-password");
