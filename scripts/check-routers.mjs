@@ -33,7 +33,10 @@ globalThis.fetch = async (input, init = {}) => {
     if (catalogMode === "html") return new Response("<html>wrong endpoint</html>");
     return Response.json({ data: [{ id: "fixture-model" }, { id: "text-embedding-fixture" }] });
   }
-  if (url.pathname.endsWith("/responses")) return Response.json({ id: "resp_fixture", object: "response", model: body.model, output: [{ type: "message", id: "msg_native", role: "assistant", status: "completed", content: [{ type: "output_text", text: "native response", annotations: [] }] }], status: "completed" });
+  // Reproduce the reported gateway reservation: an unset limit defaults to 131,072.
+  const outputLimit = body.max_output_tokens ?? body.max_tokens ?? 131072;
+  if (outputLimit > 2834) return Response.json({ error: { message: `This request requires more credits, or fewer max_tokens. You requested up to ${outputLimit} tokens, but can only afford 2834.` } }, { status: 402 });
+  if (url.pathname.endsWith("/responses")) return Response.json({ id: "resp_fixture", object: "response", model: body.model, output: [{ type: "message", id: "msg_native", role: "assistant", status: "completed", content: [{ type: "output_text", text: body.text?.format?.name === "verdict" ? '{"applying_rules":[]}' : "native response", annotations: [] }] }], status: "completed" });
   assert(url.pathname.endsWith("/chat/completions"), "Unexpected request: network access refused by test");
   if (!body.stream) return Response.json({ id: "chat_fixture", object: "chat.completion", model: body.model, choices: [{ index: 0, message: { role: "assistant", content: '{"applying_rules":[]}', tool_calls: [] }, finish_reason: "stop" }] });
   const delta = (value, finish_reason = null) => ({ id: "chat_fixture", model: body.model, choices: [{ index: 0, delta: value, finish_reason }] });
@@ -68,6 +71,12 @@ try {
     const result = await route.client.responses.create({ model: route.model, instructions: "fixture instructions", input: "Hi", text: { format: { type: "json_schema", name: "verdict", schema: { type: "object" }, strict: true } } });
     assert(result.output_text);
     const sent = requests.at(-1).body;
+    assert.equal(p.responses ? sent.max_output_tokens : sent.max_tokens, 2048, "Default calls must fit the synthetic small balance");
+    await route.client.responses.create({ model: route.model, input: "Short response", max_output_tokens: 512 });
+    assert.equal(p.responses ? requests.at(-1).body.max_output_tokens : requests.at(-1).body.max_tokens, 512, "Explicit caller limits must be preserved");
+    const beforeDenied = requests.length;
+    await assert.rejects(() => route.client.responses.create({ model: route.model, input: "Too large", max_output_tokens: 4096 }), /402.*credits/);
+    assert.equal(requests.length, beforeDenied + 1, "An unaffordable explicit limit must not trigger automatic paid retries");
     if (p.responses) assert.equal(sent.input, "Hi");
     else {
       assert.equal(sent.messages[0].role, "system");
@@ -85,7 +94,7 @@ try {
       assert.equal(replay.messages[1].tool_calls.length, 2); assert.equal(replay.messages[2].tool_call_id, "c1");
     }
     const old = getSetting(`router_config_${p.id}`);
-    for (const status of [401, 403, 429, 500]) {
+    for (const status of [401, 402, 403, 429, 500]) {
       failure = status;
       const error = await routers.saveRouter(p.id, "fixture-replacement-secret", p.baseURL, "");
       assert(error?.includes(String(status))); assert(!error.includes("fixture-replacement-secret"));
@@ -97,6 +106,17 @@ try {
   const available = (await models()).available;
   for (const p of ROUTER_PROVIDERS) assert(available.includes(`${p.id}:fixture-model`));
   assert.equal(available.length, ROUTER_PROVIDERS.length);
+  const repo = await import("../src/server/repo.ts");
+  const { DEFAULT_LOOK } = await import("../src/lib/look.ts");
+  const { autoTitle } = await import("../src/server/titles.ts");
+  const { review } = await import("../src/server/agent/review.ts");
+  const dot = repo.createDot({ name: "Budget fixture", purpose: "Offline budget check", look: DEFAULT_LOOK });
+  const conversation = repo.createConversation(dot.id);
+  await autoTitle(conversation.id, "A short synthetic chat");
+  assert.equal(requests.at(-1).body.max_output_tokens, 256, "Automatic titles must not reserve the chat allowance");
+  repo.addRule({ dotId: dot.id, action: "a synthetic action", decision: "ask" });
+  assert.equal((await review(dot.id, "a synthetic action", "ask")).decision, "ask");
+  assert.equal(requests.at(-1).body.max_output_tokens, 512, "Rule reviews must use their smaller allowance");
   // The same HTTP status can be an API permission denial or a website/security page.
   const nara = ROUTER_PROVIDERS.find((p) => p.id === "nararouter");
   const oldNara = getSetting("router_config_nararouter"), replacement = "sk-nry-replacement-secret";

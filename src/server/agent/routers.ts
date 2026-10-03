@@ -55,7 +55,7 @@ async function routerError(c: Config, res: Response): Promise<string> {
     .replace(/Bearer\s+[^\s"',;<>]+/gi, "Bearer [redacted]")
     .replace(/\b(?:sk[-_]|tr_)[a-zA-Z0-9_-]+/g, "[redacted]")
     .replace(/[\p{C}\s]+/gu, " ").trim().slice(0, max);
-  let message = res.status === 401 ? "The key was rejected by the selected endpoint." : res.status === 403 ? "The provider denied this request. Check its dashboard or contact support." : res.status === 429 ? "Rate or quota limit reached." : "Check the endpoint and provider status.";
+  let message = res.status === 401 ? "The key was rejected by the selected endpoint." : res.status === 402 ? "This request exceeds the available credits or key spending limit. Choose a cheaper model or add credits." : res.status === 403 ? "The provider denied this request. Check its dashboard or contact support." : res.status === 429 ? "Rate or quota limit reached." : "Check the endpoint and provider status.";
   let reference = "";
   if (/application\/(?:[\w.-]+\+)?json\b/i.test(res.headers.get("content-type") ?? "")) {
     const reader = res.body?.getReader();
@@ -177,7 +177,11 @@ export function routerClient(appModel: string): { client: OpenAI; model: string 
   if (cached?.signature !== signature) {
     const client = new OpenAI({ apiKey: c.key, baseURL: c.baseURL, fetch: (input, init) => routerFetch(c, input, init), maxRetries: 0, timeout: 120_000,
       defaultHeaders: route.provider.id === "openrouter" ? { "HTTP-Referer": "https://github.com/composio-community/open-dot", "X-OpenRouter-Title": "Open Dot" } : undefined });
-    cached = { signature, client: route.provider.responses ? client : chatResponses(client) };
+    const routed = route.provider.responses ? client : chatResponses(client);
+    const create = routed.responses.create.bind(routed.responses);
+    // Unset limits can reserve a model's entire output window against a small balance.
+    routed.responses.create = ((params, options) => create({ ...params, max_output_tokens: params.max_output_tokens ?? 2048 }, options)) as typeof routed.responses.create;
+    cached = { signature, client: routed };
     clients.set(route.provider.id, cached);
   }
   return { client: cached!.client, model: route.model };

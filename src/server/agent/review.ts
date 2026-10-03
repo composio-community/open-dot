@@ -19,7 +19,7 @@ export async function review(dotId: string, action: string, fallback: RuleDecisi
     const { client, model, stateless } = clientFor((await models()).review);
     const res = await client.responses.create({
       model,
-      ...(stateless ? { store: false } : {}),
+      ...(stateless ? { store: false, max_output_tokens: 512 } : {}),
       instructions:
         "You gate actions of a personal AI agent. Decide which of the user's rules (if any) apply to the pending action. " +
         "A rule applies only if the action clearly falls under it. Return the numbers of every applying rule; return an empty list if none apply.",
