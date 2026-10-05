@@ -6,6 +6,7 @@ import { clientFor, isReasoningModel, modelFor, supportsComputerTool } from "./c
 import { systemPrompt, type Trigger } from "./prompt";
 import { COMPUTER_ENABLED, findTool, setConsult, toolsForDot, type ToolCtx } from "./tools";
 import { review } from "./review";
+import { parseToolArguments, ToolArgumentsError } from "./router-chat";
 import * as repo from "../repo";
 import * as computer from "../computer";
 import type { ComputerAction } from "../computer/browser";
@@ -266,18 +267,26 @@ async function turn(dotId: string, text: string, trigger: Trigger, signal: Abort
 }
 
 async function drive(dot: Dot, prevId: string | null, input: ResponseInputItem[], trigger: Trigger, signal: AbortSignal) {
+  let correctedArguments = false;
   for (let step = 0; step < MAX_STEPS; step++) {
     signal.throwIfAborted();
     let resp: Response;
     try {
       resp = await respond(dot, prevId, input, trigger, signal);
     } catch (err) {
-      if (!prevId || signal.aborted || clientFor(await modelFor(dot.model)).stateless || !/previous|not found|No tool output/i.test(String(err))) throw err;
-      // The server-side thread is gone or broken: rebuild from our transcript and carry on.
-      const userText = input.filter((i) => "role" in i && i.role === "user").map((i) => ("content" in i ? String(i.content) : "")).join("\n");
-      input = [...rebuildContext(dot.id, userText), { role: "user", content: userText || "Continue." }];
-      prevId = null;
-      resp = await respond(dot, null, input, trigger, signal);
+      if (err instanceof ToolArgumentsError && !correctedArguments && !signal.aborted && clientFor(await modelFor(dot.model)).stateless) {
+        correctedArguments = true;
+        repo.addMessage({ dotId: dot.id, role: "system", text: "The model sent invalid tool arguments. Asking it to correct them once; no actions from that response were run." });
+        // respond already persisted the input/results. Do not append them twice or replay failed calls.
+        resp = await respond(dot, null, [{ role: "user", content: "Your last response contained invalid tool arguments and was rejected before any of its tools executed. Continue from the recorded results. Send tool arguments as a valid JSON object, escaping backslashes, quotes and newlines inside strings. Use smaller commands or split large file writes. Do not repeat previously completed actions." }], trigger, signal);
+      } else {
+        if (!prevId || signal.aborted || clientFor(await modelFor(dot.model)).stateless || !/previous|not found|No tool output/i.test(String(err))) throw err;
+        // The server-side thread is gone or broken: rebuild from our transcript and carry on.
+        const userText = input.filter((i) => "role" in i && i.role === "user").map((i) => ("content" in i ? String(i.content) : "")).join("\n");
+        input = [...rebuildContext(dot.id, userText), { role: "user", content: userText || "Continue." }];
+        prevId = null;
+        resp = await respond(dot, null, input, trigger, signal);
+      }
     }
     repo.setThread(dot.id, clientFor(await modelFor(dot.model)).stateless ? null : resp.id, null);
 
@@ -293,21 +302,24 @@ async function drive(dot: Dot, prevId: string | null, input: ResponseInputItem[]
 
 /** Stream one model response, mirroring text into the transcript as it arrives. */
 async function respond(dot: Dot, prevId: string | null, input: ResponseInputItem[], trigger: Trigger, signal: AbortSignal): Promise<Response> {
+  dot = repo.getDot(dot.id) ?? dot; // Pick up approval-mode changes at the next model turn.
   const appModel = await modelFor(dot.model);
   const { client, model, stateless } = clientFor(appModel);
   const tools: Tool[] = [
     ...toolsForDot(dot).map((t): Tool => ({ type: "function", name: t.name, description: t.description, parameters: t.parameters, strict: !stateless && t.strict !== false })),
     // OpenRouter's server-side search: the model decides when to search, same as OpenAI's web_search.
-    stateless ? ({ type: "openrouter:web_search" } as unknown as Tool) : { type: "web_search" },
+    ...(appModel.startsWith("openrouter:") ? [{ type: "openrouter:web_search" } as unknown as Tool] : stateless ? [] : [{ type: "web_search" } as Tool]),
   ];
   if (!stateless && COMPUTER_ENABLED && supportsComputerTool(model)) tools.push({ type: "computer" } as Tool);
 
   // Stateless providers get the whole conversation every time; the app keeps it (trimmed) per chat.
-  const history = stateless ? (repo.getHistory(dot.id) as ResponseInputItem[]) : [];
+  const history = stateless ? trimHistory(completeToolHistory([...(repo.getHistory(dot.id) as ResponseInputItem[]), ...input])) : [];
+  // Persist completed tool results before a network failure or cancellation can lose them.
+  if (stateless) repo.setHistory(dot.id, history);
   repo.setActivity(dot.id, "Thinking");
   const stream = await client.responses.create(
     stateless
-      ? { model, instructions: systemPrompt(dot, trigger), input: [...history, ...input], tools, parallel_tool_calls: false, store: false, stream: true }
+      ? { model, instructions: systemPrompt(dot, trigger), input: history, tools, parallel_tool_calls: false, store: false, stream: true }
       : {
           model,
           instructions: systemPrompt(dot, trigger),
@@ -366,7 +378,9 @@ async function respond(dot: Dot, prevId: string | null, input: ResponseInputItem
     for (const d of drafts.values()) repo.updateMessage(d.id, { text: d.text || "…" });
   }
   if (!final) throw new Error("The model stream ended unexpectedly");
-  if (stateless) repo.setHistory(dot.id, trimHistory([...history, ...input, ...replayable(final.output)]));
+  // Validate the entire batch before persisting or executing any of its calls (including native Responses).
+  for (const item of final.output) if (item.type === "function_call") parseToolArguments(item.arguments);
+  if (stateless) repo.setHistory(dot.id, trimHistory([...history, ...replayable(final.output)]));
   return final;
 }
 
@@ -382,6 +396,43 @@ function replayable(output: Response["output"]): ResponseInputItem[] {
     }
   }
   return items;
+}
+
+/** Repair interrupted/legacy tool turns without rerunning actions or claiming they succeeded. */
+function completeToolHistory(items: ResponseInputItem[]): ResponseInputItem[] {
+  const paired = new Map<ResponseInputItem, ResponseInputItem>();
+  const byId = new Map<string, ResponseInputItem>();
+  // Pair before reordering: a legacy result may have been saved after a new user message.
+  // Walking backwards also keeps repeated call IDs in separate tool turns independent.
+  for (let i = items.length - 1; i >= 0; i--) {
+    const item = items[i];
+    if (item.type === "function_call_output" && item.call_id) byId.set(item.call_id, item);
+    else if (item.type === "function_call") {
+      const output = byId.get(item.call_id);
+      if (output) paired.set(item, output);
+      byId.delete(item.call_id);
+    }
+  }
+  const result: ResponseInputItem[] = [];
+  const calls: ResponseInputItem[] = [];
+  const flush = () => {
+    result.push(...calls);
+    for (const call of calls) if (call.type === "function_call") result.push(paired.get(call) ?? {
+      type: "function_call_output", call_id: call.call_id,
+      output: "No result was recorded for this interrupted tool call. It may have started; check its state before retrying.",
+    });
+    calls.length = 0;
+  };
+  for (const item of items) {
+    if (item.type === "function_call") calls.push(item);
+    else {
+      flush();
+      // Results were placed immediately after their calls; omit duplicates and orphan results.
+      if (item.type !== "function_call_output") result.push(item);
+    }
+  }
+  flush();
+  return result;
 }
 
 /** Keep the replayed history bounded: drop the oldest turns, always cutting at a user message. */
@@ -422,7 +473,16 @@ async function processCalls(dot: Dot, pending: Pending, signal: AbortSignal): Pr
       return pauseFor(dot, pending, { kind: "question", status: "pending", title: String(args.question ?? ""), options: (args.options as string[]) ?? [] });
     }
     if (def.pause === "approval") {
-      return pauseFor(dot, pending, { kind: "approval", status: "pending", title: String(args.action ?? ""), detail: String(args.details ?? ""), tool: def.name });
+      const action = String(args.action ?? "");
+      const verdict = await review(dot.id, action, "ask", String(args.details ?? ""));
+      if (verdict.decision === "ask") {
+        return pauseFor(dot, pending, { kind: "approval", status: "pending", title: action,
+          detail: [String(args.details ?? ""), verdict.reason].filter(Boolean).join("\n\n"), tool: def.name });
+      }
+      pending.outputs.push({ type: "function_call_output", call_id: call.call_id, output: verdict.decision === "allow"
+        ? "Authorized by the user's approval settings. Continue with the task; don't ask again for this permission."
+        : "Not allowed by the user's rule. Do not perform this action or work around the restriction." });
+      continue;
     }
 
     if (def.pause === "connect") {
@@ -455,7 +515,7 @@ async function processCalls(dot: Dot, pending: Pending, signal: AbortSignal): Pr
     if (def.describe) {
       const action = def.describe(args, ctx);
       repo.setActivity(dot.id, "Checking your rules");
-      const verdict = await review(dot.id, action, (await def.defaultDecision?.(ctx, args)) ?? "allow");
+      const verdict = await review(dot.id, action, (await def.defaultDecision?.(ctx, args)) ?? "allow", JSON.stringify({ tool: def.name, args }));
       if (verdict.decision === "never") {
         activity(dot.id, "Blocked by your rule", verdict.rule?.action);
         pending.outputs.push({ type: "function_call_output", call_id: call.call_id, output: `Not allowed: the user's rule says never ${verdict.rule?.action ?? "do this"}. Don't try to work around it.` });
@@ -464,7 +524,7 @@ async function processCalls(dot: Dot, pending: Pending, signal: AbortSignal): Pr
       if (verdict.decision === "ask") {
         return pauseFor(dot, pending, {
           kind: "approval", status: "pending", title: capitalize(action), tool: def.name, ruleAction: verdict.rule?.action ?? action,
-          detail: [def.detail?.(args), verdict.rule ? `Your rule: ask first when it wants to ${verdict.rule.action}.` : null].filter(Boolean).join("\n\n") || undefined,
+          detail: [def.detail?.(args), verdict.rule ? `Your rule: ask first when it wants to ${verdict.rule.action}.` : verdict.reason].filter(Boolean).join("\n\n") || undefined,
         });
       }
     }
@@ -520,7 +580,7 @@ function closePending(dot: Dot, pending: Pending): ResponseInputItem[] | null {
   for (let i = pending.index; i < pending.calls.length; i++) {
     const call = pending.calls[i];
     if (call.type === "computer_call") return null;
-    outputs.push({ type: "function_call_output", call_id: call.call_id, output: "Not run — the user sent a new message first." });
+    outputs.push({ type: "function_call_output", call_id: call.call_id, output: "Interrupted by a new message before a result was recorded. Execution may have started; check its state before retrying." });
   }
   repo.setThread(dot.id, pending.responseId, null);
   return outputs;
@@ -540,13 +600,14 @@ setConsult(async (target, message, from, _depth, signal) => {
   if (!channelId) repo.addMessage({ dotId: target.id, role: "user", text: message, from: `dot:${from.name}` });
   repo.setActivity(target.id, `Helping ${from.name}`);
   try {
-    const { client, model, stateless } = clientFor(await modelFor(target.model));
+    const appModel = await modelFor(target.model);
+    const { client, model, stateless } = clientFor(appModel);
     const res = await client.responses.create(
       {
         model,
         instructions: systemPrompt(target, { kind: "dot", from: from.name }),
         input: [...rebuildContext(target.id, message).slice(-12), { role: "user", content: `${from.name} asks: ${message}` }],
-        tools: [stateless ? ({ type: "openrouter:web_search" } as unknown as Tool) : { type: "web_search" }],
+        tools: appModel.startsWith("openrouter:") ? [{ type: "openrouter:web_search" } as unknown as Tool] : stateless ? [] : [{ type: "web_search" } as Tool],
         ...(stateless ? { store: false } : isReasoningModel(model) ? { reasoning: { effort: "low" as const } } : {}),
       },
       { signal },

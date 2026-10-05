@@ -33,6 +33,8 @@ export type Look = {
 };
 
 export type DotStatus = "idle" | "working" | "waiting" | "paused";
+export const APPROVAL_MODES = ["ask", "balanced", "auto"] as const;
+export type ApprovalMode = (typeof APPROVAL_MODES)[number];
 
 export type Dot = {
   id: string;
@@ -43,6 +45,7 @@ export type Dot = {
   status: DotStatus;
   activity: string | null; // e.g. "Searching the web"
   localAccess: boolean; // may this dot run things on the user's own computer?
+  approvalMode: ApprovalMode;
   model: string | null; // null = use the default model
   createdAt: number;
 };
@@ -145,6 +148,7 @@ export type Snapshot = {
 export type ToolkitState = { slug: string; name: string; logo?: string; connected: boolean; accountId?: string };
 
 export type ComputerInfo = {
+  platform?: string;
   mode: "cloud" | "docker" | "local"; // where dots' computers run by default
   docker: boolean;
   image: string;
@@ -155,6 +159,7 @@ export type ComputerInfo = {
   keySource: "env" | "settings" | null;
   cloudKey: "env" | "settings" | null; // E2B key for cloud computers
   openRouter: "env" | "settings" | null; // OpenRouter key for open models
+  routers?: import("./model-providers").RouterStatus[]; // Public metadata; never keys.
   triggersKey: "env" | "settings" | null; // Composio API key for triggers
   sky: boolean; // OpenAI's Sky computer-use runtime is installed on this Mac
   composio: boolean; // COMPOSIO_API_KEY is set

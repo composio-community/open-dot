@@ -7,6 +7,7 @@ import { COMPUTER_ENABLED } from "./agent/tools";
 import { skyInstalled } from "./computer/sky";
 import { cloudKeySource } from "./computer/cloud";
 import { openRouterSource } from "./agent/openrouter";
+import { routerStatuses } from "./agent/routers";
 import { triggersKeySource } from "./triggers";
 import { apps, signedIn } from "./composio";
 import type { ComputerInfo, Snapshot } from "@/lib/types";
@@ -14,6 +15,7 @@ import type { ComputerInfo, Snapshot } from "@/lib/types";
 export function computerInfo(): ComputerInfo {
   const m = knownModels();
   return {
+    platform: process.platform,
     mode: defaultMode(),
     docker: dockerAvailable(),
     image: BOX_IMAGE,
@@ -24,6 +26,7 @@ export function computerInfo(): ComputerInfo {
     keySource: keySource(),
     cloudKey: cloudKeySource(),
     openRouter: openRouterSource(),
+    routers: routerStatuses(),
     triggersKey: triggersKeySource(),
     sky: skyInstalled(),
     composio: signedIn(),

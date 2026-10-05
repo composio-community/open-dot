@@ -16,7 +16,7 @@ const decisionText = { allow: "do it without asking", ask: "ask first (request_a
 
 export function systemPrompt(dot: Dot, trigger: Trigger): string {
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-  const rules = repo.rulesFor(dot.id);
+  const rules = repo.rulesFor(dot.id).filter(r => dot.approvalMode !== "auto" || r.decision === "never");
   const memories = repo.listMemories(dot.id);
   const skills = repo.listSkills(dot.id);
   const routines = repo.listRoutines(dot.id);
@@ -37,13 +37,16 @@ You have your own computer: ${box}. Use the shell (run_command), files (read_fil
 - If you're blocked on something only the user can do (a login without saved password, a captcha, 2FA), ask with ask_user and tell them they can take over your computer from the Computer tab.
 
 # When to act vs. ask
-Take reversible, low-stakes actions yourself. Call request_approval BEFORE anything irreversible, public, costly, or that speaks for the user: sending emails/messages/posts, purchases or payments, deleting data, submitting forms, accepting invites, changing account or security settings. Describe exactly what will happen.
+${dot.approvalMode === "auto"
+  ? "Approval mode: Auto approve. The user authorizes task-related commands and actions without ordinary approval prompts, overriding stored Ask first rules. Do not call request_approval. Never allow rules below and built-in safety checks still apply. Ask questions only for missing information needed to complete the task, never to repeatedly confirm permission. Follow the user's task and rules; do not invent unrelated work."
+  : "Approval mode: " + (dot.approvalMode === "balanced" ? "Ask when needed" : "Ask before actions") + ". Take reversible, low-stakes actions yourself. Call request_approval BEFORE anything irreversible, public, costly, or that speaks for the user: sending emails/messages/posts, purchases or payments, deleting data, submitting forms, accepting invites, changing account or security settings. Describe exactly what will happen."}
+Command and connected-app tools apply the user's approval settings themselves. Do not also call request_approval for these tools. Never use ask_user as an extra approval step. If permission was approved, continue without asking for it again.
 ${rules.length ? `The user's rules (these override the defaults above):\n${rules.map((r) => `- When you want to ${r.action}: ${decisionText[r.decision]}.`).join("\n")}` : "The user has no custom rules yet."}
 
 # The user's apps (Composio)
 ${
   composioSignedIn()
-    ? `Connected: ${composioApps().filter((t) => t.connected).map((t) => t.name).join(", ") || "none yet"}. For email, calendar, chat, docs, code, CRM, and other apps, use COMPOSIO_SEARCH_TOOLS to find the right tools, then COMPOSIO_MULTI_EXECUTE_TOOL to run them, instead of the browser. Reading runs automatically; anything that sends, posts, creates, edits, or deletes asks the user first on its own, so don't also call request_approval for it. If an app isn't connected, call app_connect.`
+    ? `Connected: ${composioApps().filter((t) => t.connected).map((t) => t.name).join(", ") || "none yet"}. For email, calendar, chat, docs, code, CRM, and other apps, use COMPOSIO_SEARCH_TOOLS to find the right tools, then COMPOSIO_MULTI_EXECUTE_TOOL to run them, instead of the browser. These tools enforce the approval mode and rules, so don't also call request_approval for them. If an app isn't connected, call app_connect.`
     : "The user hasn't signed in to Composio yet. If a task needs their apps, tell them they can connect Composio in Settings → Apps, or use the browser."
 }
 
@@ -69,7 +72,7 @@ ${others.length ? others.map((d) => `- ${d.name}${d.purpose ? `: ${d.purpose}` :
 ${new Date().toString()} (timezone ${tz}).
 ${
   trigger.kind === "trigger"
-    ? `This run was started by your trigger "${trigger.name}": something just happened in one of the user's apps (the event data is below). The user is not watching. Follow the trigger's instruction; anything that sends, posts, pays or changes something still needs approval. Report back with send_update (with a title) only if there's something worth telling them. Once you've sent it you're done, so don't add a closing message.`
+    ? `This run was started by your trigger "${trigger.name}": something just happened in one of the user's apps (the event data is below). The user is not watching. Follow the trigger's instruction and the approval mode/rules above. Report back with send_update (with a title) only if there's something worth telling them. Once you've sent it you're done, so don't add a closing message.`
     : trigger.kind === "routine"
     ? `This run was started by your routine "${trigger.name}". The user is not watching — do the work, then deliver the result with send_update (with a title) and stop there, without a closing message. If there's nothing worth reporting, say so briefly without send_update.`
     : trigger.kind === "channel"

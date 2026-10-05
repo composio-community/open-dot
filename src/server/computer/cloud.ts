@@ -5,12 +5,12 @@ import { emit } from "../bus";
 import { getSetting, setSetting } from "../db";
 import { seal, unseal } from "../vault";
 import { CDP_HELPER, CDP_HELPER_PATH } from "./cdp-helper";
-import { clickScript, typeScript } from "./dom-actions";
+import { clickScript, typeScript, loginScript } from "./dom-actions";
 import type { ComputerAction } from "./browser";
 
 // Cloud computers: each dot gets its own E2B desktop sandbox (Linux + Chrome + a live stream).
 // It sleeps when idle (paused with its memory, so Chrome and logins survive) and resumes on demand,
-// so dots keep working when the user's laptop is closed.
+// The sandbox can run remotely, but the agent loop and scheduler run in this app on the user's PC.
 
 export const CLOUD_SCREEN = { width: 1280, height: 800 };
 export const WORKSPACE = "/home/user/workspace";
@@ -178,11 +178,9 @@ export async function readPage(dotId: string): Promise<string> {
   return `URL: ${r.url ?? ""}\nTitle: ${r.title ?? ""}\n\n${text}`;
 }
 
-export async function fillLogin(dotId: string, username: string, password: string): Promise<string> {
-  const { sb } = await box(dotId);
-  const tmp = `/tmp/.dots-${crypto.randomUUID()}.json`;
-  await sb.files.write(tmp, JSON.stringify({ username, password }));
-  const r = await helper(dotId, `fill ${tmp}`);
+export async function fillLogin(dotId: string, site: string, username: string, password: string): Promise<string> {
+  const r = await runScript(dotId, loginScript(site, username, password));
+  if (r.error) return String(r.error);
   await screenshot(dotId);
   const n = Number(r.filled ?? 0);
   if (!n) return "No visible login fields found on this page. Navigate to the sign-in form first.";
@@ -193,7 +191,8 @@ async function runScript(dotId: string, code: string): Promise<Record<string, un
   const { sb } = await box(dotId);
   const tmp = `/tmp/.dots-${crypto.randomUUID()}.js`;
   await sb.files.write(tmp, code);
-  return helper(dotId, `js ${tmp}`);
+  try { return await helper(dotId, `js ${tmp}`); }
+  finally { await sb.commands.run(`rm -f ${tmp}`).catch(() => {}); }
 }
 
 export async function clickText(dotId: string, text: string): Promise<string> {

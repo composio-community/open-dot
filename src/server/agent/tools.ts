@@ -51,8 +51,8 @@ export const TOOLS: ToolDef[] = [
   {
     name: "run_command",
     label: "Running commands",
-    description: "Run a bash command on your own computer (Linux; the working directory is your persistent workspace). Use it for scripts, data work, downloads, installing packages, etc.",
-    parameters: obj({ command: str("The bash command to run") }),
+    description: "Run a shell command in your persistent workspace. Follow the operating system and shell in Your computer: Bash on Linux/cloud/Docker, Windows PowerShell on a local Windows PC.",
+    parameters: obj({ command: str("The shell command to run") }),
     describe: (a) => `run \`${s(a.command)}\` on its own computer`,
     // Isolated computers (cloud/docker) run freely; the sandbox-folder fallback lives on the user's Mac, so ask.
     defaultDecision: (ctx) => (computer.modeFor(ctx.dot.id) === "local" ? "ask" : "allow"),
@@ -135,14 +135,14 @@ export const TOOLS: ToolDef[] = [
     execute: async (a, ctx) => {
       const cred = credentialFor(s(a.site));
       if (!cred) return `No saved password for ${s(a.site)}. Ask the user to add one under Passwords (never ask them to paste it in chat), or to take over your computer and log in themselves.`;
-      return computer.fillLogin(ctx.dot.id, cred.username, cred.password);
+      return computer.fillLogin(ctx.dot.id, cred.site, cred.username, cred.password);
     },
   },
   {
     name: "run_on_my_computer",
     label: "On your computer",
-    description: "Run a bash command on the USER's own computer (their Mac). Only use when the task truly needs their machine; prefer your own computer.",
-    parameters: obj({ command: str("The bash command to run on the user's computer") }),
+    description: `Run a ${process.platform === "win32" ? "Windows PowerShell" : "Bash"} command on the USER's own computer. Only use when the task truly needs their machine; prefer your own computer.`,
+    parameters: obj({ command: str("The shell command to run on the user's computer") }),
     describe: (a) => `run \`${s(a.command)}\` on the user's personal computer`,
     defaultDecision: () => "ask",
     execute: async (a, ctx) => {

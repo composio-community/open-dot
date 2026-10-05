@@ -120,24 +120,4 @@ elif cmd == "js":
         code = f.read()
     os.remove(path)
     print(json.dumps(evaluate(code) or {}))
-elif cmd == "fill":
-    path = sys.argv[2]
-    with open(path) as f:
-        cred = json.load(f)
-    os.remove(path)
-    js = """((u, p) => {
-      const vis = (e) => !!(e.offsetWidth || e.offsetHeight || e.getClientRects().length);
-      const set = (el, v) => {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, v);
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      };
-      const pass = [...document.querySelectorAll('input[type=password]')].find(vis);
-      const user = [...document.querySelectorAll('input[type=email],input[autocomplete=username],input[name*=user i],input[name*=email i],input[id*=user i],input[id*=email i],input[type=text]')].find(vis);
-      let n = 0;
-      if (user && u) { set(user, u); n++; }
-      if (pass) { set(pass, p); n++; }
-      return n;
-    })(%s, %s)""" % (json.dumps(cred.get("username", "")), json.dumps(cred.get("password", "")))
-    print(json.dumps({"filled": evaluate(js) or 0}))
 `;

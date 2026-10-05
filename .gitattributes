@@ -1,0 +1,2 @@
+# Preserve the bytes used by cached third-party license provenance hashes.
+/scripts/licenses/packages/** -text

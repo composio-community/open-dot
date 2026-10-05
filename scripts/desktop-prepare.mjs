@@ -6,6 +6,20 @@ import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 
 const root = path.resolve(import.meta.dirname, "..");
+fs.copyFileSync(path.join(root, "build/icon.png"), path.join(root, "electron/icon.png"));
+// Ship the pinned browser, so a clean Windows PC needs neither Chrome nor Node installed.
+if (process.platform === "win32") {
+  execFileSync(process.execPath, [path.join(root, "node_modules/playwright/cli.js"), "install", "chromium", "--no-shell"], {
+    env: { ...process.env, PLAYWRIGHT_BROWSERS_PATH: path.join(root, ".desktop/browser") }, stdio: "inherit", windowsHide: true,
+  });
+  const browsers = path.join(root, ".desktop/browser");
+  for (const entry of fs.readdirSync(browsers)) {
+    if (!/^chromium_headless_shell-\d+$/.test(entry)) continue;
+    const shell = path.resolve(browsers, entry);
+    if (path.dirname(shell) !== browsers || fs.lstatSync(shell).isSymbolicLink()) throw new Error("Unexpected unused browser cleanup target");
+    fs.rmSync(shell, { recursive: true, force: true });
+  }
+}
 const out = path.join(root, ".next/standalone");
 if (!fs.existsSync(path.join(out, "server.js"))) throw new Error("Run `next build` first (output: standalone).");
 
@@ -43,11 +57,42 @@ for (const entry of fs.readdirSync(out)) if (!KEEP.has(entry)) fs.rmSync(path.jo
 const app = path.join(root, ".desktop/server");
 fs.rmSync(app, { recursive: true, force: true });
 fs.mkdirSync(path.dirname(app), { recursive: true });
-execFileSync("cp", ["-RP", out, app]); // -P copies symlinks as they are
-const links = execFileSync("find", [app, "-type", "l"], { encoding: "utf8" }).trim().split("\n").filter(Boolean);
+fs.cpSync(out, app, { recursive: true, dereference: process.platform === "win32", verbatimSymlinks: process.platform !== "win32" });
+if (process.platform === "win32") {
+  // A materialized top-level pnpm link loses its sibling dependency lookup. Hoist the traced packages
+  // into a normal, relocatable node_modules tree; ZIP extraction must not require creating junctions.
+  const modules = path.join(app, "node_modules");
+  const pnpm = path.join(modules, ".pnpm");
+  // ponytail: traced packages are single-version here; preserve nested trees if a future lockfile has conflicts.
+  const versions = new Map();
+  const hoist = (dir) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+      const from = path.join(dir, entry.name);
+      if (entry.name.startsWith("@")) { hoist(from); continue; }
+      const manifest = path.join(from, "package.json");
+      if (!fs.existsSync(manifest)) continue;
+      const pkg = JSON.parse(fs.readFileSync(manifest, "utf8"));
+      if (versions.has(pkg.name) && versions.get(pkg.name) !== pkg.version) {
+        throw new Error(`Multiple traced versions of ${pkg.name}; preserve its nested dependencies before shipping.`);
+      }
+      versions.set(pkg.name, pkg.version);
+      fs.cpSync(from, path.join(modules, pkg.name), { recursive: true, dereference: true });
+    }
+  };
+  for (const entry of fs.readdirSync(pnpm)) {
+    const dir = path.join(pnpm, entry, "node_modules");
+    if (fs.existsSync(dir)) hoist(dir);
+  }
+  fs.rmSync(pnpm, { recursive: true, force: true });
+  console.log(`hoisted ${versions.size} traced runtime packages for Windows`);
+}
+const links = fs.readdirSync(app, { recursive: true, withFileTypes: true })
+  .filter((entry) => entry.isSymbolicLink()).map((entry) => path.join(entry.parentPath, entry.name));
 const escaping = links.filter((l) => {
   const target = fs.readlinkSync(l);
   return path.isAbsolute(target) || !path.resolve(path.dirname(l), target).startsWith(app + path.sep) || !fs.existsSync(l);
 });
 if (escaping.length) throw new Error(`Symlinks that leave the desktop server (or are broken):\n${escaping.join("\n")}`);
 console.log("desktop server ready:", path.relative(root, app));
+await import("./desktop-notices.mjs");

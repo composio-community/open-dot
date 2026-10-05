@@ -8,7 +8,7 @@ import { useStore } from "@/lib/store";
 import LookEditor from "./LookEditor";
 import { DotTriggers } from "./Triggers";
 import Dot3DLazy from "./Dot3DLazy";
-import { Empty, PageHeader, RemoveButton, RuleEditor, Section } from "./SettingsKit";
+import { ApprovalModeSelect, Empty, PageHeader, RemoveButton, RuleEditor, Section } from "./SettingsKit";
 import type { Dot } from "@/lib/types";
 
 const SCHEDULES = [
@@ -36,6 +36,7 @@ export default function SetupPane({ dot }: { dot: Dot }) {
   const [routineError, setRoutineError] = useState<string | null>(null);
   const [skillOpen, setSkillOpen] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
   const dirty = name !== dot.name || purpose !== dot.purpose || instructions !== dot.instructions || JSON.stringify(look) !== JSON.stringify(dot.look);
@@ -80,7 +81,8 @@ export default function SetupPane({ dot }: { dot: Dot }) {
           </div>
         </Section>
 
-        <Section eyebrow="Approvals" title="Rules" description={`${dot.name} knows when to take action and when to ask for approval. Add custom rules for more control.`}>
+        <Section id="approvals" eyebrow="Approvals" title="Approval mode & rules" description={`Choose when ${dot.name} should ask. Never allow rules always apply; Auto approve overrides Ask first rules.`}>
+          <ApprovalModeSelect dot={dot} />
           <RuleEditor dotId={dot.id} name={dot.name} />
         </Section>
 
@@ -151,7 +153,7 @@ export default function SetupPane({ dot }: { dot: Dot }) {
           </div>
         </Section>
 
-        <Section eyebrow="Automation" title="Triggers" description={`Wake ${dot.name} when something happens in your apps, like a new email or a Slack mention. It runs in its own chat and still asks before sending anything.`}>
+        <Section eyebrow="Automation" title="Triggers" description={`Wake ${dot.name} when something happens in your apps, like a new email or a Slack mention. It runs in its own chat using your approval mode and rules.`}>
           <DotTriggers dot={dot} />
         </Section>
 
@@ -209,7 +211,11 @@ export default function SetupPane({ dot }: { dot: Dot }) {
         <Section eyebrow="Danger zone" title={`Delete ${dot.name}`} description="Removes its chat, memory, routines, triggers, and computer. This can't be undone.">
           {confirmDelete ? (
             <div className="flex items-center gap-2">
-              <button className="btn bg-destructive text-card hover:opacity-90" onClick={() => start(async () => (await actions.deleteDot(dot.id), router.push("/")))}>
+              <button className="btn bg-destructive text-card hover:opacity-90" disabled={pending} onClick={() => start(async () => {
+                const error = await actions.deleteDot(dot.id);
+                setDeleteError(error);
+                if (!error) router.push("/");
+              })}>
                 Yes, delete {dot.name}
               </button>
               <button className="btn-quiet" onClick={() => setConfirmDelete(false)}>
@@ -221,6 +227,7 @@ export default function SetupPane({ dot }: { dot: Dot }) {
               Delete {dot.name}…
             </button>
           )}
+          {deleteError && <p className="mt-3 text-caption text-destructive" role="alert">{deleteError}</p>}
         </Section>
       </div>
     </div>

@@ -3,6 +3,7 @@ import { db, getSetting, id, setSetting } from "./db";
 import { emit } from "./bus";
 import { Cron } from "croner";
 import { normalizeLook } from "@/lib/look";
+import { APPROVAL_MODES } from "@/lib/types";
 import type {
   AppTrigger, Attachment, CardData, Channel, Conversation, Dot, DotStatus, Look, Memory, Message, MessageRole, PasswordEntry, Routine, Rule, RuleDecision, Skill,
 } from "@/lib/types";
@@ -21,6 +22,7 @@ const toDot = (r: Row): Dot => ({
   status: r.status as DotStatus,
   activity: activity.get(r.id as string) ?? null,
   localAccess: r.local_access === 1,
+  approvalMode: r.approval_mode === "auto" ? "auto" : r.approval_mode === "balanced" ? "balanced" : "ask",
   model: (r.model as string) ?? null,
   createdAt: r.created_at as number,
 });
@@ -54,8 +56,9 @@ export function createDot(input: { name: string; purpose: string; instructions?:
 
 export function updateDot(
   dotId: string,
-  patch: Partial<Pick<Dot, "name" | "purpose" | "instructions" | "look" | "status" | "localAccess" | "model">>,
+  patch: Partial<Pick<Dot, "name" | "purpose" | "instructions" | "look" | "status" | "localAccess" | "model" | "approvalMode">>,
 ): Dot | null {
+  if (patch.approvalMode !== undefined && !APPROVAL_MODES.includes(patch.approvalMode)) throw new Error("Invalid approval mode");
   const cols: string[] = [];
   const vals: (string | number | null)[] = [];
   if (patch.name !== undefined) {
@@ -86,6 +89,10 @@ export function updateDot(
     cols.push("local_access = ?");
     vals.push(patch.localAccess ? 1 : 0);
   }
+  if (patch.approvalMode !== undefined) {
+    cols.push("approval_mode = ?");
+    vals.push(patch.approvalMode);
+  }
   if (cols.length) db().prepare(`UPDATE dots SET ${cols.join(", ")} WHERE id = ?`).run(...vals, dotId);
   const dot = getDot(dotId);
   if (dot) emit({ type: "dot", data: dot });
@@ -101,7 +108,18 @@ export function setActivity(dotId: string, label: string | null) {
 
 export function deleteDot(dotId: string) {
   const d = db();
-  for (const t of ["messages", "memories", "skills", "routines", "triggers", "rules", "conversations"]) d.prepare(`DELETE FROM ${t} WHERE dot_id = ?`).run(dotId);
+  for (const t of ["messages", "memories", "skills", "routines", "triggers", "rules", "conversations", "files"]) {
+    d.prepare(`DELETE FROM ${t} WHERE dot_id = ?`).run(dotId);
+  }
+  const channels = listChannels();
+  for (const ch of channels) {
+    if (ch.leadId === dotId) {
+      deleteChannel(ch.id);
+    } else if (ch.memberIds.includes(dotId)) {
+      const remaining = ch.memberIds.filter((m) => m !== dotId);
+      d.prepare("UPDATE channels SET members = ? WHERE id = ?").run(JSON.stringify(remaining), ch.id);
+    }
+  }
   d.prepare("DELETE FROM dots WHERE id = ?").run(dotId);
   emit({ type: "dot_deleted", id: dotId });
 }

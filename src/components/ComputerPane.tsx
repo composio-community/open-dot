@@ -30,6 +30,7 @@ function LiveView({ dotId, interactive, nonce }: { dotId: string; interactive: b
 export default function ComputerPane({ dot }: { dot: Dot }) {
   const shotAt = useStore((s) => s.screens[dot.id]);
   const computer = useStore((s) => s.computer);
+  const machine = computer.platform === "darwin" ? "Mac" : "PC";
   const cloud = computer.mode === "cloud";
   const [nonce, setNonce] = useState(0);
   const [takenOver, setTakenOver] = useState(false);
@@ -58,7 +59,7 @@ export default function ComputerPane({ dot }: { dot: Dot }) {
             <h1 className="text-h2 mt-1.5">{dot.name}&apos;s computer</h1>
             <p className="mt-1 text-body-sm text-foreground/55">
               {cloud
-                ? "A Linux desktop in the cloud. It keeps working while you're away and sleeps when idle."
+                ? "A Linux desktop in the cloud. It sleeps when idle; agents and routines need this app open and your PC awake."
                 : takenOver
                   ? `You're driving. Click and type right here; logins stay saved in ${dot.name}'s browser.`
                   : "Its own browser and workspace. Watch it work, or take over to log in yourself."}
@@ -135,7 +136,7 @@ export default function ComputerPane({ dot }: { dot: Dot }) {
               <span
                 className={`ml-auto rounded-xs px-1.5 py-0.5 font-mono text-[10px] tracking-wider uppercase ${computer.mode === "local" ? "bg-warning/15 text-warning" : "bg-success/12 text-success"}`}
               >
-                {computer.mode === "cloud" ? "Cloud" : computer.mode === "docker" ? "Container" : "This Mac"}
+                {computer.mode === "cloud" ? "Cloud" : computer.mode === "docker" ? "Container" : `This ${machine}`}
               </span>
             </div>
             <p className="mt-2 text-body-sm text-foreground/55">
@@ -151,7 +152,7 @@ export default function ComputerPane({ dot }: { dot: Dot }) {
                 </>
               ) : (
                 <>
-                  A sandbox folder on this Mac; commands ask first.{" "}
+                  A workspace folder on this {machine}; commands ask first. This is not an OS sandbox.{" "}
                   <Link href="/settings#cloud-key" className="underline underline-offset-2 hover:text-foreground">
                     Add an E2B key
                   </Link>{" "}
@@ -181,7 +182,7 @@ export default function ComputerPane({ dot }: { dot: Dot }) {
           <section className="surface p-5">
             <div className="flex items-center gap-2">
               <Laptop className="size-4 text-foreground/50" strokeWidth={1.5} />
-              <h2 className="text-[15px] font-medium">Access to this Mac</h2>
+              <h2 className="text-[15px] font-medium">Access to this {machine}</h2>
               <button
                 role="switch"
                 aria-checked={dot.localAccess}
@@ -194,8 +195,8 @@ export default function ComputerPane({ dot }: { dot: Dot }) {
             </div>
             <p className="mt-2 text-body-sm text-foreground/55">
               {dot.localAccess
-                ? `${dot.name} can run tasks on this Mac, not only on its own computer. It always asks first unless your rules say otherwise.`
-                : `${dot.name} can't access this Mac. Allow it to let your dot open files and run tasks here.`}
+                ? `${dot.name} can run tasks on this ${machine}, not only on its own computer. It always asks first unless your rules say otherwise.`
+                : `${dot.name} can't access this ${machine}. Allow it to let your dot open files and run tasks here.`}
             </p>
           </section>
         </div>

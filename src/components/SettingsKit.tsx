@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import { X } from "lucide-react";
 import * as actions from "@/app/actions";
 import { useStore } from "@/lib/store";
-import type { RuleDecision } from "@/lib/types";
+import type { ApprovalMode, Dot, RuleDecision } from "@/lib/types";
 
 /** Two-column settings block: label + description on the left, controls on the right. */
 export function Section({ id, eyebrow, title, description, children }: { id?: string; eyebrow?: string; title: string; description?: React.ReactNode; children: React.ReactNode }) {
@@ -48,8 +48,48 @@ const DECISIONS: { value: RuleDecision; label: string; tone: string }[] = [
   { value: "never", label: "Never allow", tone: "bg-destructive/10 text-destructive" },
 ];
 
+export function ApprovalModeSelect({ dot, compact = false }: { dot: Dot; compact?: boolean }) {
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className={compact ? "hidden xl:block" : "surface mb-4 space-y-2 p-4"}>
+      <label className={compact ? "flex items-center gap-1.5 text-caption text-foreground/60" : "block"}>
+        <span className={compact ? "" : "eyebrow mb-1.5 block"}>Approvals</span>
+        <select
+          aria-label="Approval mode"
+          className={compact ? "h-8 max-w-36 rounded-md border border-black/10 bg-card px-2 text-[12px]" : "field"}
+          value={dot.approvalMode}
+          disabled={pending}
+          onChange={(e) => {
+            const mode = e.target.value as ApprovalMode;
+            setError(null);
+            start(async () => {
+              try { await actions.setApprovalMode(dot.id, mode); }
+              catch { setError("Could not save approval mode. Try again."); }
+            });
+          }}
+        >
+          <option value="balanced">Ask when needed</option>
+          <option value="ask">Ask before actions</option>
+          <option value="auto">Auto approve</option>
+        </select>
+      </label>
+      {!compact && <p className="text-caption text-foreground/55">
+        {dot.approvalMode === "auto"
+          ? "Commands and actions run without ordinary approval prompts, including changes on your PC and in connected apps. This overrides Ask first rules. Never allow rules and built-in safety checks still apply."
+          : dot.approvalMode === "balanced"
+          ? "Routine work runs automatically after your bot's model checks it. Risky or uncertain actions still ask; if the check fails, it asks too."
+          : "Local commands and sensitive actions ask first. Reading workspace files and routine browser navigation still run automatically."}
+        {" "}Applies to every chat and routine for this dot. Approve or deny any request already waiting once.
+      </p>}
+      {error && <p role="alert" className="text-caption text-destructive">{error}</p>}
+    </div>
+  );
+}
+
 export function RuleEditor({ dotId, name }: { dotId: string | null; name: string }) {
   const all = useStore((s) => s.rules);
+  const auto = useStore((s) => s.dots.find(d => d.id === dotId)?.approvalMode === "auto");
   const rules = useMemo(() => all.filter((r) => r.dotId === dotId), [all, dotId]);
   const [action, setAction] = useState("");
   const [decision, setDecision] = useState<RuleDecision>("ask");
@@ -66,7 +106,9 @@ export function RuleEditor({ dotId, name }: { dotId: string | null; name: string
                 <span className="min-w-0 flex-1 text-body-sm text-foreground/60">
                   When {name} wants to <span className="text-foreground">{r.action}</span>
                 </span>
-                <span className={`shrink-0 rounded-xs px-1.5 py-0.5 font-mono text-[10px] tracking-wider uppercase ${d.tone}`}>{d.label}</span>
+                <span className={`shrink-0 rounded-xs px-1.5 py-0.5 font-mono text-[10px] tracking-wider uppercase ${auto && r.decision === "ask" ? "bg-black/5 text-foreground/45" : d.tone}`}>
+                  {auto && r.decision === "ask" ? "Inactive in Auto approve" : d.label}
+                </span>
                 <RemoveButton label="Delete rule" onClick={() => start(() => actions.deleteRule(r.id))} />
               </div>
             );
@@ -105,7 +147,7 @@ export function RuleEditor({ dotId, name }: { dotId: string | null; name: string
           </div>
         </div>
       </form>
-      <p className="text-caption text-foreground/45">One short, natural-language rule per action. &ldquo;Ask first&rdquo; wins if rules conflict. Built-in safety checks always apply.</p>
+      <p className="text-caption text-foreground/45">One short, natural-language rule per action. &ldquo;Never allow&rdquo; always wins. Auto approve overrides &ldquo;Ask first&rdquo; rules; those rules apply again in the other modes. Built-in safety checks always apply.</p>
     </div>
   );
 }

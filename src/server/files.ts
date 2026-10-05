@@ -65,3 +65,17 @@ export function get(fileId: string): (Attachment & { dotId: string; boxPath: str
 export function boxPathOf(fileId: string): string | null {
   return get(fileId)?.boxPath ?? null;
 }
+
+export function deleteForDot(dotId: string) {
+  const rows = db().prepare("SELECT id FROM files WHERE dot_id = ?").all(dotId) as Row[];
+  for (const r of rows) {
+    try {
+      fs.unlinkSync(path.join(DIR, r.id));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw new Error("Could not delete an attachment. Close any app using it and try again.", { cause: err });
+      }
+    }
+  }
+  db().prepare("DELETE FROM files WHERE dot_id = ?").run(dotId);
+}

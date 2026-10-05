@@ -1,9 +1,11 @@
 import { onEvent } from "@/server/bus";
 import { snapshot } from "@/server/snapshot";
 import type { ServerEvent } from "@/lib/types";
+import { isTrustedLoopbackRequest, loopbackForbiddenResponse } from "@/server/security";
 
 // Server-sent events: one full snapshot on connect, then every change as it happens.
 export async function GET(req: Request) {
+  if (!isTrustedLoopbackRequest(req)) return loopbackForbiddenResponse();
   const encoder = new TextEncoder();
   let cleanup = () => {};
   const stream = new ReadableStream({

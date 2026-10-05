@@ -1,0 +1,96 @@
+{
+  "@bufbuild/protobuf@2.15.0": {
+    "metadataUrl": "https://registry.npmjs.org/%40bufbuild%2Fprotobuf/2.15.0",
+    "gitHead": "f72f5295c853b7be8c0828f350e4f2803c8afdde",
+    "texts": [
+      {
+        "file": "LICENSE",
+        "url": "https://raw.githubusercontent.com/bufbuild/protobuf-es/f72f5295c853b7be8c0828f350e4f2803c8afdde/LICENSE",
+        "sha256": "c04b4216f1cd4c5a4f7fb2f2a1b0ae70d847e9e0cac7c9dee9bf8cc03177c449"
+      },
+      {
+        "file": "NOTICE-BSD-3-Clause.txt",
+        "url": "https://raw.githubusercontent.com/bufbuild/protobuf-es/f72f5295c853b7be8c0828f350e4f2803c8afdde/packages/protobuf/src/wire/varint.ts",
+        "sha256": "0e952cb110ff6944789fbe47c25b38819a3866c04c7c5cbea8d0c0d8f3a92f0e",
+        "scope": "Complete leading BSD license comment from varint.ts"
+      }
+    ]
+  },
+  "@cfworker/json-schema@4.1.1": {
+    "metadataUrl": "https://registry.npmjs.org/%40cfworker%2Fjson-schema/4.1.1",
+    "gitHead": "5409fdc2bd144f68e8b28c61c71fcb16600000a6",
+    "texts": [
+      {
+        "file": "LICENSE.md",
+        "url": "https://raw.githubusercontent.com/cfworker/cfworker/5409fdc2bd144f68e8b28c61c71fcb16600000a6/LICENSE.md",
+        "sha256": "376944252ab78ca6b41aee44ddea8894927ee67891e77e61eb9d59af63e35094"
+      }
+    ]
+  },
+  "@connectrpc/connect@2.2.0": {
+    "metadataUrl": "https://registry.npmjs.org/%40connectrpc%2Fconnect/2.2.0",
+    "gitHead": "378bb8fde1209afc3ab6a9b0aa97c00d0db58c24",
+    "texts": [
+      {
+        "file": "LICENSE",
+        "url": "https://raw.githubusercontent.com/connectrpc/connect-es/378bb8fde1209afc3ab6a9b0aa97c00d0db58c24/LICENSE",
+        "sha256": "445e3398edab2a40d8d5e5c1a1d533af6464fbae8378ecc0caaf2668e9bbea73"
+      }
+    ]
+  },
+  "@connectrpc/connect-web@2.2.0": {
+    "metadataUrl": "https://registry.npmjs.org/%40connectrpc%2Fconnect-web/2.2.0",
+    "gitHead": "378bb8fde1209afc3ab6a9b0aa97c00d0db58c24",
+    "texts": [
+      {
+        "file": "LICENSE",
+        "url": "https://raw.githubusercontent.com/connectrpc/connect-es/378bb8fde1209afc3ab6a9b0aa97c00d0db58c24/LICENSE",
+        "sha256": "445e3398edab2a40d8d5e5c1a1d533af6464fbae8378ecc0caaf2668e9bbea73"
+      }
+    ]
+  },
+  "@react-three/fiber@9.8.1": {
+    "metadataUrl": "https://registry.npmjs.org/%40react-three%2Ffiber/9.8.1",
+    "gitHead": "53ec672ac4a7189711766b87ece18889abbb32d4",
+    "texts": [
+      {
+        "file": "LICENSE",
+        "url": "https://raw.githubusercontent.com/pmndrs/react-three-fiber/53ec672ac4a7189711766b87ece18889abbb32d4/LICENSE",
+        "sha256": "9c35b5de7b7493a707fffe4eb23bd2f7f449153c1911f7c6eefb4e591fd5349a"
+      }
+    ]
+  },
+  "draco3d@1.5.7": {
+    "metadataUrl": "https://registry.npmjs.org/draco3d/1.5.7",
+    "gitHead": "8786740086a9f4d83f44aa83badfbea4dce7a1b5",
+    "texts": [
+      {
+        "file": "LICENSE",
+        "url": "https://raw.githubusercontent.com/google/draco/8786740086a9f4d83f44aa83badfbea4dce7a1b5/LICENSE",
+        "sha256": "d3709b0fb4b8a94bbb1d02b8a2e484f258b0d9c5c5a01f940391f3fe662cd1a4"
+      }
+    ]
+  },
+  "@next/env@16.3.6": {
+    "metadataUrl": "https://registry.npmjs.org/%40next%2Fenv/16.3.6",
+    "texts": [
+      {
+        "file": "Next-MIT-LICENSE.txt",
+        "source": "Installed next@16.3.6/license.md",
+        "sha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
+        "scope": "Same-version monorepo root MIT license; package metadata also declares MIT"
+      }
+    ]
+  },
+  "@next/swc-win32-x64-msvc@16.3.6": {
+    "metadataUrl": "https://registry.npmjs.org/%40next%2Fswc-win32-x64-msvc/16.3.6",
+    "texts": [
+      {
+        "file": "Next-MIT-LICENSE.txt",
+        "source": "Installed next@16.3.6/license.md",
+        "sha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
+        "scope": "Same-version monorepo root MIT license; package metadata also declares MIT"
+      }
+    ]
+  }
+}

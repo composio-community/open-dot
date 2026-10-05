@@ -11,6 +11,7 @@ import Chat from "./Chat";
 import ComputerPane from "./ComputerPane";
 import SetupPane from "./SetupPane";
 import ModelPicker from "./ModelPicker";
+import { ApprovalModeSelect } from "./SettingsKit";
 import { MenuButton } from "./MobileBar";
 
 export type Tab = "chat" | "computer" | "setup";
@@ -50,6 +51,7 @@ export default function DotView({ dotId, tab, conversation }: { dotId: string; t
         </Link>
 
         <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1">
+          <ApprovalModeSelect key={`${dot.id}:${tab}`} dot={dot} compact />
           <span className="hidden items-center sm:flex">
             <ModelPicker compact value={dot.model} onChange={(m) => start(() => setDotModel(dot.id, m))} />
             <span className="mx-1 h-5 w-px bg-black/[0.08]" />

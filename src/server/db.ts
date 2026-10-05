@@ -62,6 +62,7 @@ function migrate(conn: DatabaseSync) {
   const cols = conn.prepare("PRAGMA table_info(dots)").all().map((c) => (c as { name: string }).name);
   if (!cols.includes("model")) conn.exec("ALTER TABLE dots ADD COLUMN model TEXT");
   if (!cols.includes("box_id")) conn.exec("ALTER TABLE dots ADD COLUMN box_id TEXT");
+  if (!cols.includes("approval_mode")) conn.exec("ALTER TABLE dots ADD COLUMN approval_mode TEXT NOT NULL DEFAULT 'ask'");
   const convCols = conn.prepare("PRAGMA table_info(conversations)").all().map((c) => (c as { name: string }).name);
   // Model-facing history for providers that don't keep conversation state (OpenRouter).
   if (convCols.length && !convCols.includes("history")) conn.exec("ALTER TABLE conversations ADD COLUMN history TEXT");
