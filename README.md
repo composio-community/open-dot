@@ -12,7 +12,7 @@ OpenAI launched Dots on September 29, personal agents that keep working in the b
 - You can put it on a schedule, like a brief of your inbox and calendar every weekday at 8, and it posts each run to its own chat and sends you a notification.
 - Triggers wake a dot when something happens in your apps, like an email from your bank or a new issue on your repo, and it does what you told it to for that trigger. They're optional and need a Composio API key.
 - You can make a few dots with different jobs, and they can pass work to each other. Each one remembers things about you and saves skills for tasks it repeats.
-- It can run code in its own workspace, either on an E2B cloud computer, in a local Docker container or in a folder on your Mac.
+- It can run code in its own workspace, on an E2B cloud computer, in a local Docker container or in a folder on your Mac.
 
 ## Get it running on your Mac
 
