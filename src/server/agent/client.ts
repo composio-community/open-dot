@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { getSetting, setSetting } from "../db";
 import { seal, unseal } from "../vault";
 import { isOpenRouterModel, openModels, openRouterId, openRouterKey, openrouter, preferredOpenModel, smallOpenModel } from "./openrouter";
+import { isOpenLocalModel, local, localEnabled, localModelId, localModels, preferredLocalModel, smallLocalModel } from "./local";
 
 // Models are chosen from what the API key can actually use. Precedence for a dot's model:
 // the dot's own choice → the default picked in Settings → DOTS_MODEL → best available.
@@ -94,19 +95,35 @@ async function resolveOpenAI(): Promise<{ main: string; review: string; availabl
   };
 }
 
-/** OpenAI models (with an OpenAI key) first, then open models (with an OpenRouter key). */
+/** OpenAI models (with an OpenAI key) first, then open models (OpenRouter), then local models (DOTS_LOCAL_BASE_URL). */
 async function resolve() {
-  const [oa, open] = await Promise.all([
+  const [oa, open, localIds] = await Promise.all([
     resolveOpenAI(),
     openModels().catch((err) => {
       console.warn("[dots] couldn't list OpenRouter models:", err instanceof Error ? err.message : err);
       return [] as string[];
     }),
+    localModels().catch((err) => {
+      console.warn("[dots] couldn't list local models:", err instanceof Error ? err.message : err);
+      return [] as string[];
+    }),
   ]);
+  // DOTS_MODEL / DOTS_REVIEW_MODEL can name a local model, with or without the "local:" prefix.
+  const envLocal = (env: string | undefined) => (env ? localIds.find((id) => localModelId(id) === env.replace(/^local:/, "")) ?? null : null);
   const resolved = {
-    main: oa?.main ?? (open.length ? preferredOpenModel(open) : process.env.DOTS_MODEL || MAIN_PREFERENCE[0]),
-    review: oa?.review ?? (open.length ? smallOpenModel(open) : process.env.DOTS_REVIEW_MODEL || REVIEW_PREFERENCE[0]),
-    available: [...(oa?.available ?? []), ...open],
+    main:
+      oa?.main
+      ?? (open.length ? preferredOpenModel(open) : null)
+      ?? (localIds.length ? envLocal(process.env.DOTS_MODEL) ?? preferredLocalModel(localIds) : null)
+      ?? process.env.DOTS_MODEL
+      ?? MAIN_PREFERENCE[0],
+    review:
+      oa?.review
+      ?? (open.length ? smallOpenModel(open) : null)
+      ?? (localIds.length ? envLocal(process.env.DOTS_REVIEW_MODEL) ?? smallLocalModel(localIds) : null)
+      ?? process.env.DOTS_REVIEW_MODEL
+      ?? REVIEW_PREFERENCE[0],
+    available: [...(oa?.available ?? []), ...open, ...localIds],
   };
   g.__dotsResolved = resolved;
   console.log(`[dots] default ${resolved.main} (agent), ${resolved.review} (rule review); ${resolved.available.length} models available`);
@@ -121,12 +138,14 @@ export function resetModels() {
 
 /** The API client for a model, the model id that API expects, and whether it keeps conversation state. */
 export function clientFor(model: string): { client: OpenAI; model: string; stateless: boolean } {
-  return isOpenRouterModel(model) ? { client: openrouter(), model: openRouterId(model), stateless: true } : { client: openai(), model, stateless: false };
+  if (isOpenRouterModel(model)) return { client: openrouter(), model: openRouterId(model), stateless: true };
+  if (isOpenLocalModel(model)) return { client: local(), model: localModelId(model), stateless: true };
+  return { client: openai(), model, stateless: false };
 }
 
-/** True when any model provider is set up (OpenAI or OpenRouter). */
+/** True when any model provider is set up (OpenAI, OpenRouter, or a local server). */
 export function canThink(): boolean {
-  return hasKey() || Boolean(openRouterKey());
+  return hasKey() || Boolean(openRouterKey()) || localEnabled();
 }
 
 export function models(): Promise<{ main: string; review: string; available: string[] }> {

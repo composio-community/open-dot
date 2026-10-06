@@ -3,6 +3,8 @@ import type {
   ResponseComputerToolCall, ResponseFunctionToolCall, ResponseInputContent, ResponseInputItem, Response, Tool,
 } from "openai/resources/responses/responses";
 import { clientFor, isReasoningModel, modelFor, supportsComputerTool } from "./client";
+import { isOpenRouterModel } from "./openrouter";
+import { isOpenLocalModel } from "./local";
 import { systemPrompt, type Trigger } from "./prompt";
 import { COMPUTER_ENABLED, findTool, setConsult, toolsForDot, type ToolCtx } from "./tools";
 import { review } from "./review";
@@ -295,10 +297,15 @@ async function drive(dot: Dot, prevId: string | null, input: ResponseInputItem[]
 async function respond(dot: Dot, prevId: string | null, input: ResponseInputItem[], trigger: Trigger, signal: AbortSignal): Promise<Response> {
   const appModel = await modelFor(dot.model);
   const { client, model, stateless } = clientFor(appModel);
+  // Server-side web search where it exists: OpenAI's web_search, OpenRouter's equivalent. Local servers have none.
+  const search: Tool | null = isOpenRouterModel(appModel)
+    ? ({ type: "openrouter:web_search" } as unknown as Tool)
+    : isOpenLocalModel(appModel)
+      ? null
+      : { type: "web_search" };
   const tools: Tool[] = [
     ...toolsForDot(dot).map((t): Tool => ({ type: "function", name: t.name, description: t.description, parameters: t.parameters, strict: !stateless && t.strict !== false })),
-    // OpenRouter's server-side search: the model decides when to search, same as OpenAI's web_search.
-    stateless ? ({ type: "openrouter:web_search" } as unknown as Tool) : { type: "web_search" },
+    ...(search ? [search] : []),
   ];
   if (!stateless && COMPUTER_ENABLED && supportsComputerTool(model)) tools.push({ type: "computer" } as Tool);
 
@@ -540,13 +547,14 @@ setConsult(async (target, message, from, _depth, signal) => {
   if (!channelId) repo.addMessage({ dotId: target.id, role: "user", text: message, from: `dot:${from.name}` });
   repo.setActivity(target.id, `Helping ${from.name}`);
   try {
-    const { client, model, stateless } = clientFor(await modelFor(target.model));
+    const appModel = await modelFor(target.model);
+    const { client, model, stateless } = clientFor(appModel);
     const res = await client.responses.create(
       {
         model,
         instructions: systemPrompt(target, { kind: "dot", from: from.name }),
         input: [...rebuildContext(target.id, message).slice(-12), { role: "user", content: `${from.name} asks: ${message}` }],
-        tools: [stateless ? ({ type: "openrouter:web_search" } as unknown as Tool) : { type: "web_search" }],
+        tools: isOpenLocalModel(appModel) ? [] : [isOpenRouterModel(appModel) ? ({ type: "openrouter:web_search" } as unknown as Tool) : { type: "web_search" }],
         ...(stateless ? { store: false } : isReasoningModel(model) ? { reasoning: { effort: "low" as const } } : {}),
       },
       { signal },

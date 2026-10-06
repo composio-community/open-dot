@@ -3,7 +3,7 @@
 import { useState, useSyncExternalStore, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { Bell, KeyRound, Lock, LogOut, Plus, RefreshCw } from "lucide-react";
-import { connectApp, deletePassword, refreshApps, savePassword, setCloudKey, setDefaultModel, setOpenAIKey, setOpenRouterKey, signInComposio, signOutComposio } from "@/app/actions";
+import { connectApp, deletePassword, refreshApps, savePassword, setCloudKey, setDefaultModel, setOpenAIKey, setLocalServer, setOpenRouterKey, signInComposio, signOutComposio } from "@/app/actions";
 import { useStore } from "@/lib/store";
 import { openAfter } from "@/lib/popup";
 import { Empty, PageHeader, RemoveButton, RuleEditor, Section } from "./SettingsKit";
@@ -121,9 +121,10 @@ export default function SettingsView() {
           </div>
         </Section>
 
-        <Section eyebrow="Engine" title="Models & computers" description="Models come from what your OpenAI key can use, plus open models once you add an OpenRouter key.">
+        <Section eyebrow="Engine" title="Models & computers" description="Models come from what your OpenAI key can use, plus open models via OpenRouter and anything a local server (Ollama, LM Studio…) serves.">
           <ApiKey />
           <OpenModelsKey />
+          <LocalModels />
           <CloudKey />
           <div className="surface mb-3 flex items-center gap-3 p-4">
             <div className="flex-1">
@@ -414,6 +415,89 @@ function OpenModelsKey() {
         >
           <input className="field font-mono text-[13px]" type="password" placeholder="sk-or-..." value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" />
           <button className="btn-primary shrink-0" disabled={pending || !key.trim()}>
+            {pending ? "Checking…" : "Save"}
+          </button>
+        </form>
+      )}
+      {error && <p className="mt-2 text-caption text-destructive">{error}</p>}
+    </div>
+  );
+}
+
+/** Local models: any OpenAI-compatible server on this machine (Ollama, LM Studio, vLLM…), set here or with DOTS_LOCAL_BASE_URL. */
+function LocalModels() {
+  const computer = useStore((s) => s.computer);
+  const count = computer.models.filter((m) => m.startsWith("local:")).length;
+  const [editing, setEditing] = useState(false);
+  const [url, setUrl] = useState("");
+  const [key, setKey] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  const saved = computer.local !== null;
+  const inPicker = count ? ` · ${count} model${count === 1 ? "" : "s"} in the picker` : "";
+  const save = (baseURL: string, apiKey: string) =>
+    start(async () => {
+      const err = await setLocalServer(baseURL, apiKey);
+      setError(err);
+      if (err) return;
+      setUrl("");
+      setKey("");
+      setEditing(false);
+    });
+
+  return (
+    <div id="local-models" className="surface mb-3 scroll-mt-6 p-4">
+      <div className="flex items-center gap-3">
+        <div className="flex-1">
+          <div className="text-[14px]">
+            Local models <span className="text-foreground/40">· optional</span>
+          </div>
+          <div className="text-body-sm text-foreground/55">
+            {computer.local === "env"
+              ? `Connected from DOTS_LOCAL_BASE_URL${inPicker}.`
+              : saved
+                ? `Connected${inPicker}. Voice calls still use OpenAI.`
+                : "Add the URL of an OpenAI-compatible server on this Mac, like Ollama (http://localhost:11434/v1) or LM Studio (http://localhost:1234/v1), to run dots on its models."}
+          </div>
+        </div>
+        {computer.local === "settings" && !editing && (
+          <>
+            <button className="btn-quiet h-8 px-3 text-[13px]" disabled={pending} onClick={() => save("", "")}>
+              Remove
+            </button>
+            <button className="btn-secondary h-8 px-3 text-[13px]" onClick={() => setEditing(true)}>
+              Change
+            </button>
+          </>
+        )}
+      </div>
+      {(editing || !saved) && computer.local !== "env" && (
+        <form
+          className="mt-3 flex flex-wrap gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            save(url, key);
+          }}
+        >
+          <input
+            className="field min-w-0 flex-[2] font-mono text-[13px]"
+            type="url"
+            aria-label="Local server URL"
+            placeholder="http://localhost:11434/v1"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            autoComplete="off"
+          />
+          <input
+            className="field min-w-0 flex-1 font-mono text-[13px]"
+            type="password"
+            aria-label="Local server API key"
+            placeholder="API key (optional)"
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            autoComplete="off"
+          />
+          <button className="btn-primary shrink-0" disabled={pending || !url.trim()}>
             {pending ? "Checking…" : "Save"}
           </button>
         </form>

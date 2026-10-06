@@ -7,6 +7,7 @@ import { COMPUTER_ENABLED } from "./agent/tools";
 import { skyInstalled } from "./computer/sky";
 import { cloudKeySource } from "./computer/cloud";
 import { openRouterSource } from "./agent/openrouter";
+import { localSource } from "./agent/local";
 import { triggersKeySource } from "./triggers";
 import { apps, signedIn } from "./composio";
 import type { ComputerInfo, Snapshot } from "@/lib/types";
@@ -24,6 +25,7 @@ export function computerInfo(): ComputerInfo {
     keySource: keySource(),
     cloudKey: cloudKeySource(),
     openRouter: openRouterSource(),
+    local: localSource(),
     triggersKey: triggersKeySource(),
     sky: skyInstalled(),
     composio: signedIn(),

@@ -9,6 +9,7 @@ import { emit } from "@/server/bus";
 import { computerInfo } from "@/server/snapshot";
 import { models, resetModels, saveApiKey } from "@/server/agent/client";
 import { saveOpenRouterKey } from "@/server/agent/openrouter";
+import { saveLocalServer } from "@/server/agent/local";
 import * as triggers from "@/server/triggers";
 import * as composio from "@/server/composio";
 import * as voice from "@/server/voice";
@@ -193,6 +194,16 @@ export async function setOpenAIKey(key: string): Promise<string | null> {
 /** Paste an OpenRouter key in Settings to add open models (empty removes it). */
 export async function setOpenRouterKey(key: string): Promise<string | null> {
   const err = await saveOpenRouterKey(key.trim());
+  if (err) return err;
+  resetModels();
+  emit({ type: "computer", data: computerInfo() });
+  void models().then(() => emit({ type: "computer", data: computerInfo() })).catch(() => {});
+  return null;
+}
+
+/** Point dots at a local OpenAI-compatible model server (Ollama, LM Studio…); an empty URL removes it. */
+export async function setLocalServer(baseURL: string, apiKey: string): Promise<string | null> {
+  const err = await saveLocalServer({ baseURL, apiKey });
   if (err) return err;
   resetModels();
   emit({ type: "computer", data: computerInfo() });

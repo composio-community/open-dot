@@ -1,6 +1,6 @@
 # Open Dot
 
-OpenAI launched Dots on September 29, personal agents that keep working in the background on their own computers, but you need ChatGPT Pro or Business Premium to use them. Open Dot is an open source version that runs on your own Mac with your own OpenAI key, or with open models like Kimi, DeepSeek and Qwen through OpenRouter.
+OpenAI launched Dots on September 29, personal agents that keep working in the background on their own computers, but you need ChatGPT Pro or Business Premium to use them. Open Dot is an open source version that runs on your own Mac with your own OpenAI key, with open models like Kimi, DeepSeek and Qwen through OpenRouter, or with models served on your own machine through Ollama or LM Studio.
 
 ## What your dots can do
 
@@ -27,7 +27,7 @@ The build isn't notarized yet, so the first time you open it, right-click the ap
 
 Then in **Settings**:
 
-1. Paste your OpenAI API key, an [OpenRouter](https://openrouter.ai) key, or both. Keys are stored encrypted on your Mac. An OpenRouter key adds open models like Kimi, DeepSeek, Qwen and GLM to the model picker.
+1. Paste your OpenAI API key, an [OpenRouter](https://openrouter.ai) key, or both. Keys are stored encrypted on your Mac. An OpenRouter key adds open models like Kimi, DeepSeek, Qwen and GLM to the model picker. To run on models served on your Mac instead, add your local server's URL (and its key, if it has one) under **Local models**, e.g. `http://localhost:11434/v1` for Ollama.
 2. Sign in with Composio to connect your apps. The sign-in opens in your normal browser.
 3. If you want dots to keep working while your Mac sleeps, paste an [E2B](https://e2b.dev) key too, and each dot gets a cloud computer.
 4. For triggers, paste the API key of a project from [platform.composio.dev](https://platform.composio.dev), then add triggers from a dot's Setup page. You connect the apps for triggers again there, because they run in your own Composio project and not through the sign-in from step 2.
@@ -52,6 +52,8 @@ In development everything is stored in `.data/` in the project folder.
 |---|---|---|
 | `OPENAI_API_KEY` | none | Your OpenAI key, unless you paste it in Settings |
 | `OPENROUTER_API_KEY` | none | Open models through OpenRouter, unless you paste the key in Settings |
+| `DOTS_LOCAL_BASE_URL` | none | An OpenAI-compatible local server, unless you add it in Settings — Ollama (`http://localhost:11434/v1`, needs ≥ 0.13.3) or LM Studio (`http://localhost:1234/v1`). Its models show up in every picker as `local:…` |
+| `DOTS_LOCAL_API_KEY` | `local` | The local server's API key, if it asks for one |
 | `COMPOSIO_API_KEY` | none | A Composio project key for triggers, unless you paste it in Settings |
 | `DOTS_MODEL` | best one your key can use, e.g. `gpt-5.5` | Main model for the dots (Responses API) |
 | `DOTS_REVIEW_MODEL` | `gpt-5.4-mini` | Checks actions against your rules and names chats |
@@ -68,7 +70,7 @@ In development everything is stored in `.data/` in the project folder.
 - It's made to run on your own Mac. There's no login screen, so don't put it on a public server as it is.
 - Routines and triggers only run while the app is open. A routine that comes due while your Mac is asleep gets skipped, and so do trigger events that arrive then.
 - Most triggers fire within seconds. Ones with an Interval setting, like Gmail's, can take up to that many minutes.
-- Open models don't get OpenAI's computer tool. They click and type by the text on the page instead, which works on most sites but not on things drawn on a canvas. Voice calls still need an OpenAI key.
+- Open and local models don't get OpenAI's computer tool or its server-side web search. They click and type by the text on the page instead, which works on most sites but not on things drawn on a canvas. Voice calls still need an OpenAI key.
 - For bookings and purchases, the site needs a card saved in your account there, or you take over for the payment step.
 - Open Dot isn't affiliated with OpenAI.
 
@@ -84,6 +86,7 @@ src/server/
   agent/review.ts      checks an action against your rules
   agent/prompt.ts      the system prompt, rebuilt every turn from rules, memory, skills and routines
   agent/openrouter.ts  open models through OpenRouter, which keeps no history, so the app keeps it per chat
+  agent/local.ts       local models through any OpenAI-compatible server (Ollama, LM Studio), same stateless pattern
   computer/            one interface over E2B cloud computers, Docker and local folders
   computer/browser.ts  each dot's Chrome profile, computer-use actions, the live view you can take over
   composio.ts          Composio sign-in and app connections
@@ -100,4 +103,4 @@ The dots use OpenAI's built-in `web_search` and `computer` tools, or OpenRouter'
 
 ## Built with
 
-[OpenAI](https://platform.openai.com) (GPT-5.5 through the Responses API, Realtime for voice, computer use), [OpenRouter](https://openrouter.ai) for open models, [Composio](https://composio.dev), [Next.js](https://nextjs.org), [Electron](https://www.electronjs.org), [Playwright](https://playwright.dev) with your installed Chrome, [E2B](https://e2b.dev) and SQLite.
+[OpenAI](https://platform.openai.com) (GPT-5.5 through the Responses API, Realtime for voice, computer use), [OpenRouter](https://openrouter.ai) for open models, [Ollama](https://ollama.com) and [LM Studio](https://lmstudio.ai) for local models, [Composio](https://composio.dev), [Next.js](https://nextjs.org), [Electron](https://www.electronjs.org), [Playwright](https://playwright.dev) with your installed Chrome, [E2B](https://e2b.dev) and SQLite.

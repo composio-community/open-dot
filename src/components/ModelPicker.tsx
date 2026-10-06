@@ -5,10 +5,12 @@ import { Check, ChevronDown, Cpu } from "lucide-react";
 import { useStore } from "@/lib/store";
 
 const OPEN = "openrouter:";
-const label = (id: string) => (id.startsWith(OPEN) ? id.slice(OPEN.length) : id);
+const LOCAL = "local:";
+const label = (id: string) => (id.startsWith(OPEN) ? id.slice(OPEN.length) : id.startsWith(LOCAL) ? id.slice(LOCAL.length) : id);
 
 function hint(id: string): string | null {
   if (id.startsWith(OPEN)) return "Open model · OpenRouter";
+  if (id.startsWith(LOCAL)) return "Local model · this Mac";
   if (/-pro\b/.test(id)) return "Strongest · slower";
   if (/-nano\b/.test(id)) return "Fastest · cheapest";
   if (/-mini\b/.test(id)) return "Fast · cheaper";
@@ -42,8 +44,15 @@ export default function ModelPicker({
       id,
       label: label(id),
       sub: hint(id),
-      // a heading above the first open model (and above OpenAI's when both are there)
-      group: id.startsWith(OPEN) && !list[i - 1]?.startsWith(OPEN) ? "Open models" : i === 0 && list.some((m) => m.startsWith(OPEN)) ? "OpenAI" : undefined,
+      // a heading above the first model of each group (and above OpenAI's when other groups are there)
+      group:
+        id.startsWith(OPEN) && !list[i - 1]?.startsWith(OPEN)
+          ? "Open models"
+          : id.startsWith(LOCAL) && !list[i - 1]?.startsWith(LOCAL)
+            ? "Local models"
+            : i === 0 && list.some((m) => m.startsWith(OPEN) || m.startsWith(LOCAL))
+              ? "OpenAI"
+              : undefined,
     })),
   ];
 
